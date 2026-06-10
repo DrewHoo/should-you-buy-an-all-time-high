@@ -107,16 +107,20 @@ export default function App() {
     let cancelled = false
     ;(async () => {
       try {
-        const idx = await fetch(`${BASE}data/index.json`).then(r => r.json())
+        // index.json is the freshness gate: always bypass the HTTP/CDN cache
+        // so a new refresh is picked up immediately. Its `generatedAt` then
+        // versions the (cacheable) per-ticker files, busting them in lockstep.
+        const idx = await fetch(`${BASE}data/index.json`, { cache: 'no-store' }).then(r => r.json())
         if (cancelled) return
         setIndex(idx)
         setProgress({ done: 0, total: idx.tickers.length })
 
+        const ver = encodeURIComponent(idx.generatedAt || '')
         const results = new Array(idx.tickers.length)
         let done = 0
         await Promise.all(idx.tickers.map(async (t, i) => {
           try {
-            const d = await fetch(`${BASE}data/${encodeURIComponent(t.symbol)}.json`).then(r => r.json())
+            const d = await fetch(`${BASE}data/${encodeURIComponent(t.symbol)}.json?v=${ver}`).then(r => r.json())
             results[i] = d
           } catch {
             results[i] = null
