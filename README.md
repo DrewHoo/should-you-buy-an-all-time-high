@@ -14,7 +14,7 @@ Hover any row to scrub through its ATH ladder and read date / drawdown /
 recovery window for each peak. Sorted by recency-corrected share of
 permanent ATHs.
 
-Live: <https://drewhoover.com/how-long-underwater/>
+Live: <https://drewhoover.com/should-you-buy-an-all-time-high/>
 
 ## Running locally
 
@@ -24,7 +24,7 @@ npm run fetch          # pull adjusted closes from Yahoo Finance
 npm run dev
 ```
 
-Visit <http://localhost:5173/how-long-underwater/>.
+Visit <http://localhost:5173/should-you-buy-an-all-time-high/>.
 
 ## How it works
 
@@ -50,7 +50,7 @@ Visit <http://localhost:5173/how-long-underwater/>.
 ## Deploying
 
 The default config publishes to GitHub Pages at
-`/how-long-underwater/`. Push to `main` and the workflow handles the
+`/should-you-buy-an-all-time-high/`. Push to `main` and the workflow handles the
 fetch, build, and deploy.
 
 ## Shareable assets
