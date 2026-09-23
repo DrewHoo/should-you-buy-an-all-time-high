@@ -8,9 +8,10 @@
     "fetch": "node scripts/fetch-data.mjs",
     "gen:og": "node scripts/gen-og.mjs",
     "gen:favicon": "node scripts/gen-favicon.mjs",
-    "build": "node scripts/fetch-data.mjs && vite build",
-    "build:no-fetch": "vite build",
-    "preview": "vite preview"
+    "build": "node scripts/fetch-data.mjs && vite build && node scripts/prerender.mjs",
+    "build:no-fetch": "vite build && node scripts/prerender.mjs",
+    "preview": "vite preview",
+    "gen:cover": "node scripts/gen-cover.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",

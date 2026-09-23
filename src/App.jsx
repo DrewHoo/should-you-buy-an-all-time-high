@@ -34,7 +34,7 @@ const FEATURED_RANK = new Map(FEATURED.map((s, i) => [s, i]))
 
 const CATEGORIES = [
   ['all', 'All'], ['stock', 'Stocks'], ['etf', 'ETFs'],
-  ['commodity', 'Metals'], ['crypto', 'Crypto'],
+  ['commodity', 'Commodities'], ['crypto', 'Crypto'],
 ]
 
 const SORTS = [['featured', 'Featured'], ['lexicographic', 'Lexicographic']]
@@ -77,14 +77,21 @@ function useRange() {
   return range
 }
 
+// useLayoutEffect warns during the build-time prerender, where there is
+// no layout to measure; on the server it's a plain no-op effect instead.
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
 // 'light' or 'dark', following the viewer's system setting. The chart's
 // tick colors are computed in JS, so they can't just ride on CSS vars.
+// Starts as 'light' so the prerendered HTML and the first client render
+// match, then switches before the first paint after hydration.
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 function useColorScheme() {
-  const [scheme, setScheme] = useState(() => (window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light'))
-  useEffect(() => {
+  const [scheme, setScheme] = useState('light')
+  useIsoLayoutEffect(() => {
     const mq = window.matchMedia(DARK_QUERY)
     const update = () => setScheme(mq.matches ? 'dark' : 'light')
+    update()
     mq.addEventListener('change', update)
     return () => mq.removeEventListener('change', update)
   }, [])
@@ -94,12 +101,18 @@ function useColorScheme() {
 // ─────────────────────────────────────────────────────────────
 // Top-level: loads index.json, then fetches every ticker's
 // detail file in parallel. Shows a progress count while loading.
+//
+// `initialIndex` is the ticker list baked into the page at build time
+// (scripts/prerender.mjs), so the loading view can list every ticker
+// before any data arrives, and the prerendered HTML and first client
+// render match.
 // ─────────────────────────────────────────────────────────────
-export default function App() {
-  const [index, setIndex] = useState(null)
+export default function App({ initialIndex = null }) {
+  const [index, setIndex] = useState(initialIndex)
   const [tickers, setTickers] = useState(null)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState(null)
+  const scheme = useColorScheme()
 
   useEffect(() => {
     let cancelled = false
@@ -138,22 +151,38 @@ export default function App() {
   }, [])
 
   if (error) return <main className="state state--error">Couldn't load data: {error}</main>
-  if (!tickers) {
-    const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0
-    return (
-      <main className="state">
-        <Mast />
-        <div className="loader">
-          Loading <strong>{progress.done}/{progress.total || '…'}</strong> tickers
-          <div className="loader-bar"><div className="loader-fill" style={{ width: `${pct}%` }} /></div>
-        </div>
-      </main>
-    )
-  }
-  return <Leaderboard tickers={tickers} generatedAt={index?.generatedAt} />
+  if (!tickers) return <Loading index={index} progress={progress} scheme={scheme} />
+  return <Leaderboard tickers={tickers} generatedAt={index?.generatedAt} scheme={scheme} />
 }
 
-function Mast({ children }) {
+// The page before the price data arrives: the masthead, every ticker in
+// featured order with an empty timeline, and the notes. It's also what
+// the prerender bakes into the HTML for crawlers.
+function Loading({ index, progress, scheme }) {
+  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0
+  const tickers = index ? [...index.tickers].sort(byFeatured) : []
+  return (
+    <main>
+      <Mast scheme={scheme} endMs={index ? Date.parse(index.generatedAt) : 0} />
+      <div className="loader">
+        Loading <strong>{progress.done}/{progress.total || '…'}</strong> tickers
+        <div className="loader-bar"><div className="loader-fill" style={{ width: `${pct}%` }} /></div>
+      </div>
+      <ol className="rows">
+        {tickers.map((t) => (
+          <li key={t.symbol} className="row">
+            <div className="c-sym" title={t.name}>{t.symbol}</div>
+            <div className="c-name">{t.name}</div>
+            <div className="c-chart" />
+          </li>
+        ))}
+      </ol>
+      <Notes generatedAt={index?.generatedAt} />
+    </main>
+  )
+}
+
+function Mast({ scheme, endMs }) {
   return (
     <header className="mast">
       <h1>Should You Buy an All-Time High?</h1>
@@ -163,7 +192,7 @@ function Mast({ children }) {
         market average, grey for average, red for underperforming the market. Hover or tap
         individual all-time highs to learn more.
       </p>
-      {children}
+      <Legend scheme={scheme} endMs={endMs} />
     </header>
   )
 }
@@ -172,24 +201,27 @@ function featuredRank(symbol) {
   return FEATURED_RANK.has(symbol) ? FEATURED_RANK.get(symbol) : Infinity
 }
 
+const bySymbol = (a, b) => a.symbol.localeCompare(b.symbol)
+// Featured puts the curated list first, then everything else A–Z.
+const byFeatured = (a, b) => (featuredRank(a.symbol) - featuredRank(b.symbol)) || bySymbol(a, b)
+
 // Every row's SVG is drawn in pixel space at this height, so ticks stay
 // crisp instead of being stretched by a viewBox.
 const CHART_H = 23
 
-function Leaderboard({ tickers, generatedAt }) {
+function Leaderboard({ tickers, generatedAt, scheme }) {
   const initial = useMemo(readUrlState, [])
   const [filter, setFilter] = useState(initial.filter)
   const [sortKey, setSortKey] = useState(initial.sortKey)
   const [query, setQuery] = useState(initial.query)
   const range = useRange()
-  const scheme = useColorScheme()
   const [chartEl, setChartEl] = useState(null)
   const [chartW, setChartW] = useState(0)
 
   useEffect(() => { writeUrlState({ filter, sortKey, query }) }, [filter, sortKey, query])
 
   // Every row's chart cell has the same width, so measure the header's once.
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     if (!chartEl) return
     const measure = () => setChartW(Math.floor(chartEl.getBoundingClientRect().width))
     measure()
@@ -220,24 +252,15 @@ function Leaderboard({ tickers, generatedAt }) {
     })
   }, [tickers, filter, query])
 
-  // Featured puts the curated list first, then everything else A–Z;
-  // lexicographic is A–Z by symbol throughout.
-  const sorted = useMemo(() => {
-    const bySymbol = (a, b) => a.symbol.localeCompare(b.symbol)
-    const arr = [...filtered]
-    if (sortKey === 'featured') {
-      arr.sort((a, b) => (featuredRank(a.symbol) - featuredRank(b.symbol)) || bySymbol(a, b))
-    } else {
-      arr.sort(bySymbol)
-    }
-    return arr
-  }, [filtered, sortKey])
+  // Lexicographic is A–Z by symbol throughout.
+  const sorted = useMemo(
+    () => [...filtered].sort(sortKey === 'featured' ? byFeatured : bySymbol),
+    [filtered, sortKey],
+  )
 
   return (
     <main>
-      <Mast>
-        <Legend scheme={scheme} endMs={axis.endMs} />
-      </Mast>
+      <Mast scheme={scheme} endMs={axis.endMs} />
 
       <section className="controls">
         <div className="seg" role="group" aria-label="Category">
@@ -336,7 +359,7 @@ function sampleLevel(k, endMs) {
 function Legend({ scheme, endMs }) {
   const [chartEl, setChartEl] = useState(null)
   const [chartW, setChartW] = useState(0)
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     if (!chartEl) return
     const measure = () => setChartW(Math.floor(chartEl.getBoundingClientRect().width))
     measure()
@@ -609,7 +632,7 @@ function Notes({ generatedAt }) {
           clears and the next one, which it doesn't.
         </li>
         <li>
-          Data refreshed {generatedAt ? new Date(generatedAt).toLocaleString() : '—'}.
+          Data refreshed {generatedAt ? fmtDate(generatedAt.slice(0, 10)) : '—'}.
         </li>
       </ul>
     </section>

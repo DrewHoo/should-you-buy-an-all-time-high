@@ -62,6 +62,7 @@ fetch, build, and deploy.
 ```bash
 npm run gen:favicon    # writes public/favicon.* and apple-touch-icon
 npm run gen:og         # writes public/og.png (1200x630)
+npm run gen:cover      # writes public/card.png (1200x750), the index-site card
 ```
 
 Both are committed; CI does not regenerate them. Rerun by hand if you
