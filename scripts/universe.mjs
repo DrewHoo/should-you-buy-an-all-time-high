@@ -3,7 +3,7 @@
 //   - S&P 100 (OEX)
 //   - Major tech / growth ETFs (and a few sectors for context)
 //   - Semiconductor ETFs and notable semi names outside NDX/OEX
-//   - Commodity ETFs: one fund per metal, plus energy and agriculture
+//   - Metals: one physically backed fund per metal, plus gold and copper miners
 //   - Crypto: bitcoin and the ten oldest coins still widely traded
 //     (no stablecoins, no funds that just hold bitcoin)
 //
@@ -105,20 +105,17 @@ const ETFS_TECH_AND_GROWTH = [
   { symbol: 'XLRE', name: 'Real Estate Select Sector SPDR' },
 ]
 
-// ETFs, not futures: continuous futures went negative in 2020 (crude), and a
-// return from a negative price is meaningless. The futures-backed funds
-// (USO, UNG, DBA, DBC) lose value rolling contracts, which is part of
-// their story here.
+// Only things someone might buy and hold. Futures-backed funds (oil, gas,
+// agriculture, even copper's CPER) lose value rolling contracts, which
+// anyone who'd hold them long term already knows. Copper and gold also
+// show up as miners, which hold stocks instead.
 const COMMODITIES = [
   { symbol: 'GLD',  name: 'SPDR Gold Shares' },
   { symbol: 'SLV',  name: 'iShares Silver Trust' },
   { symbol: 'PPLT', name: 'abrdn Platinum ETF' },
   { symbol: 'PALL', name: 'abrdn Palladium ETF' },
-  { symbol: 'CPER', name: 'United States Copper Index Fund' },
-  { symbol: 'USO',  name: 'United States Oil Fund' },
-  { symbol: 'UNG',  name: 'United States Natural Gas Fund' },
-  { symbol: 'DBA',  name: 'Invesco DB Agriculture Fund' },
-  { symbol: 'DBC',  name: 'Invesco DB Commodity Index Tracking Fund' },
+  { symbol: 'GDX',  name: 'VanEck Gold Miners ETF' },
+  { symbol: 'COPX', name: 'Global X Copper Miners ETF' },
 ]
 
 // Oldest first, by launch. Yahoo's daily history starts in 2014 for

@@ -67,11 +67,12 @@ export function makeAxis(fromYear, endMs) {
 // Tick color: the annualized return from buying at that ATH close to
 // the latest close (dividends in, inflation not taken out).
 //
-// A diverging scale around RETURN_MID, the 7%/yr that retirement
-// planning most often assumes. At the midpoint a tick is neutral gray;
+// A diverging scale around a midpoint the reader picks with a slider,
+// RETURN_MID by default: the 7%/yr that retirement planning most often
+// assumes. At the midpoint a tick is neutral gray;
 // it goes redder the further the return falls short and deeper
 // dollar-bill green the further it beats it, saturating RETURN_SPAN
-// either side (so -8%/yr is full red, +22%/yr full green). The tooltip
+// either side (at 7%, -8%/yr is full red and +22%/yr full green). The tooltip
 // always carries the exact number.
 //
 // Each color scheme gets its own steps, checked with the dataviz palette
@@ -139,8 +140,8 @@ function buildRamp({ below, mid, above }) {
 }
 const RAMPS = { light: buildRamp(RETURN_COLORS.light), dark: buildRamp(RETURN_COLORS.dark) }
 
-export function returnColor(annual, scheme = 'light') {
-  const k = Number.isFinite(annual) ? Math.round((annual - RETURN_MID) * 100) : 0
+export function returnColor(annual, scheme = 'light', mid = RETURN_MID) {
+  const k = Number.isFinite(annual) ? Math.round((annual - mid) * 100) : 0
   return RAMPS[scheme][STEPS + Math.max(-STEPS, Math.min(STEPS, k))]
 }
 

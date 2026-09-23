@@ -72,9 +72,15 @@ main { max-width: 1320px; margin: 0 auto; padding: 28px 32px 72px; position: rel
   max-width: 640px; margin: 0;
 }
 /* The legend: a sample row about a third of the screen wide, with room
-   above and below for its labels. */
-.legend { margin-top: 16px; }
+   above and below for its labels, and the market-average slider beside it
+   (below it on phones). */
+.legend {
+  margin-top: 16px;
+  display: flex; flex-wrap: wrap; align-items: center;
+  column-gap: 40px; row-gap: 4px;
+}
 .row.key {
+  flex: none;
   width: max(33.33vw, 340px); max-width: 100%;
   grid-template-columns: 54px minmax(0, 1fr); column-gap: 10px;
   height: auto; padding: 14px 0 15px;
@@ -89,6 +95,25 @@ main { max-width: 1320px; margin: 0 auto; padding: 28px 32px 72px; position: rel
 }
 .key-label--above { bottom: calc(100% + 3px); }
 .key-label--below { top: calc(100% + 4px); }
+
+/* --thumb is the range thumb's width, so the stop labels sit under the
+   thumb's positions rather than the track's ends. */
+.avg {
+  --thumb: 16px;
+  width: 220px;
+  font-size: 11px; color: var(--ink-soft);
+}
+.avg-head strong { color: var(--ink); }
+.avg input[type='range'] {
+  display: block; width: 100%; margin: 6px 0 2px;
+  accent-color: var(--title);
+  cursor: pointer;
+}
+.avg input:disabled { cursor: default; opacity: 0.55; }
+.avg-ticks { position: relative; height: 13px; font-size: 10px; line-height: 13px; color: var(--ink-faint); }
+.avg-ticks span { position: absolute; top: 0; transform: translateX(-50%); }
+.avg-ticks .is-on { color: var(--ink); font-weight: 700; }
+.avg-note { margin-top: 3px; font-size: 10.5px; color: var(--ink-faint); }
 .now-caret { fill: var(--ink-soft); }
 
 /* ─── Controls ─────────────────────────────────────────────── */
@@ -288,6 +313,7 @@ body:has(#dhv-back-bar) .row--head { top: 32px; }
 
   .row { --cols: 54px minmax(0, 1fr); column-gap: 8px; }
   .row.key { width: 100%; }
+  .avg { width: 100%; max-width: 300px; }
   .row--head { font-size: 9.5px; }
 
   #comments { padding: 24px 16px 48px; }

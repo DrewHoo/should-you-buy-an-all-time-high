@@ -34,31 +34,45 @@ const FEATURED_RANK = new Map(FEATURED.map((s, i) => [s, i]))
 
 const CATEGORIES = [
   ['all', 'All'], ['stock', 'Stocks'], ['etf', 'ETFs'],
-  ['commodity', 'Commodities'], ['crypto', 'Crypto'],
+  ['commodity', 'Metals'], ['crypto', 'Crypto'],
 ]
 
 const SORTS = [['featured', 'Featured'], ['lexicographic', 'Lexicographic']]
 
+// The slider's stops for the gray midpoint, in % a year. Each one asks a
+// different question of the same buys.
+const AVG_STOPS = [
+  { pct: 0, note: 'did buying lose money?' },
+  { pct: 3, note: 'about inflation' },
+  { pct: 7, note: 'the usual planning figure' },
+  { pct: 10, note: "the S&P 500's long-run average" },
+]
+const DEFAULT_AVG = Math.round(RETURN_MID * 100)
+
 const VALID_FILTERS = new Set(CATEGORIES.map(([v]) => v))
 const VALID_SORTS = new Set(SORTS.map(([v]) => v))
+const VALID_AVGS = new Set(AVG_STOPS.map((s) => String(s.pct)))
 
 function readUrlState() {
-  if (typeof window === 'undefined') return { filter: 'all', sortKey: 'featured', query: '' }
+  if (typeof window === 'undefined') return { filter: 'all', sortKey: 'featured', query: '', avg: DEFAULT_AVG }
   const u = new URLSearchParams(window.location.search)
   const filter = u.get('cat')
   const sort = u.get('sort')
+  const avg = u.get('avg')
   return {
     filter: VALID_FILTERS.has(filter) ? filter : 'all',
     sortKey: VALID_SORTS.has(sort) ? sort : 'featured',
     query: u.get('q') || '',
+    avg: VALID_AVGS.has(avg) ? Number(avg) : DEFAULT_AVG,
   }
 }
 
-function writeUrlState({ filter, sortKey, query }) {
+function writeUrlState({ filter, sortKey, query, avg }) {
   const u = new URLSearchParams()
   if (filter && filter !== 'all') u.set('cat', filter)
   if (sortKey && sortKey !== 'featured') u.set('sort', sortKey)
   if (query) u.set('q', query)
+  if (avg !== DEFAULT_AVG) u.set('avg', String(avg))
   const qs = u.toString()
   const path = window.location.pathname + (qs ? `?${qs}` : '')
   window.history.replaceState(null, '', path + window.location.hash)
@@ -163,7 +177,7 @@ function Loading({ index, progress, scheme }) {
   const tickers = index ? [...index.tickers].sort(byFeatured) : []
   return (
     <main>
-      <Mast scheme={scheme} endMs={index ? Date.parse(index.generatedAt) : 0} />
+      <Mast scheme={scheme} endMs={index ? Date.parse(index.generatedAt) : 0} avg={DEFAULT_AVG} />
       <div className="loader">
         Loading <strong>{progress.done}/{progress.total || '…'}</strong> tickers
         <div className="loader-bar"><div className="loader-fill" style={{ width: `${pct}%` }} /></div>
@@ -182,7 +196,7 @@ function Loading({ index, progress, scheme }) {
   )
 }
 
-function Mast({ scheme, endMs }) {
+function Mast({ scheme, endMs, avg, onAvg }) {
   return (
     <header className="mast">
       <h1>Should You Buy an All-Time High?</h1>
@@ -192,7 +206,7 @@ function Mast({ scheme, endMs }) {
         market average, grey for average, red for underperforming the market. Hover or tap
         individual all-time highs to learn more.
       </p>
-      <Legend scheme={scheme} endMs={endMs} />
+      <Legend scheme={scheme} endMs={endMs} avg={avg} onAvg={onAvg} />
     </header>
   )
 }
@@ -214,11 +228,13 @@ function Leaderboard({ tickers, generatedAt, scheme }) {
   const [filter, setFilter] = useState(initial.filter)
   const [sortKey, setSortKey] = useState(initial.sortKey)
   const [query, setQuery] = useState(initial.query)
+  const [avg, setAvg] = useState(initial.avg)
+  const mid = avg / 100
   const range = useRange()
   const [chartEl, setChartEl] = useState(null)
   const [chartW, setChartW] = useState(0)
 
-  useEffect(() => { writeUrlState({ filter, sortKey, query }) }, [filter, sortKey, query])
+  useEffect(() => { writeUrlState({ filter, sortKey, query, avg }) }, [filter, sortKey, query, avg])
 
   // Every row's chart cell has the same width, so measure the header's once.
   useIsoLayoutEffect(() => {
@@ -260,7 +276,7 @@ function Leaderboard({ tickers, generatedAt, scheme }) {
 
   return (
     <main>
-      <Mast scheme={scheme} endMs={axis.endMs} />
+      <Mast scheme={scheme} endMs={axis.endMs} avg={avg} onAvg={setAvg} />
 
       <section className="controls">
         <div className="seg" role="group" aria-label="Category">
@@ -309,7 +325,7 @@ function Leaderboard({ tickers, generatedAt, scheme }) {
 
         <ol className="rows">
           {sorted.map((t) => (
-            <Row key={t.symbol} ticker={t} axis={axis} chartW={chartW} gridD={gridD} scheme={scheme} />
+            <Row key={t.symbol} ticker={t} axis={axis} chartW={chartW} gridD={gridD} scheme={scheme} mid={mid} />
           ))}
         </ol>
       </div>
@@ -327,18 +343,21 @@ const pctLabel = (r) => `${r < 0 ? '−' : r > 0 ? '+' : ''}${Math.round(Math.ab
 // reads. Hovering or tapping one opens the same popover the board does.
 // Each tick is a made-up buy, consistent with one today's price: the
 // green one never got cheaper, the red one is still below today.
+// The ticks' returns follow the slider's midpoint.
 const SAMPLE_TODAY = 165.6
-const KEY = [
-  { frac: 0.15, r: RETURN_MID + RETURN_SPAN, label: `≥${pctLabel(RETURN_MID + RETURN_SPAN)}/yr`,
-    years: 16, buyable: 0, maxDD: 0 },
-  { frac: 0.45, r: RETURN_MID, label: `${pctLabel(RETURN_MID).slice(1)}/yr`,
-    years: 10, buyable: 41, maxDD: 0.09 },
-  { frac: 0.75, r: RETURN_MID - RETURN_SPAN, label: `≤${pctLabel(RETURN_MID - RETURN_SPAN)}/yr`,
-    years: 2, buyable: 250, maxDD: 0.31 },
-]
-const KEY_FRACS = KEY.map((k) => k.frac)
+function keyTicks(mid) {
+  return [
+    { frac: 0.15, r: mid + RETURN_SPAN, label: `≥${pctLabel(mid + RETURN_SPAN)}/yr`,
+      years: 16, buyable: 0, maxDD: 0 },
+    { frac: 0.45, r: mid, label: `${Math.round(mid * 100)}%/yr`,
+      years: 10, buyable: 41, maxDD: 0.09 },
+    { frac: 0.75, r: mid - RETURN_SPAN, label: `≤${pctLabel(mid - RETURN_SPAN)}/yr`,
+      years: 2, buyable: 250, maxDD: 0.31 },
+  ]
+}
+const KEY_FRACS = keyTicks(RETURN_MID).map((k) => k.frac)
 // Today's price sits between the gray and red ticks: above the gray high
-// (so that buyer is up 7%/yr) and below the red one (so that buyer is down).
+// (so that buyer is up) and below the red one (so that buyer is down).
 const KEY_NOW = 0.6
 const SAMPLE_TICKER = { symbol: 'TICKER', name: 'Example Co.' }
 
@@ -356,7 +375,9 @@ function sampleLevel(k, endMs) {
   }
 }
 
-function Legend({ scheme, endMs }) {
+function Legend({ scheme, endMs, avg, onAvg }) {
+  const mid = avg / 100
+  const KEY = useMemo(() => keyTicks(mid), [mid])
   const [chartEl, setChartEl] = useState(null)
   const [chartW, setChartW] = useState(0)
   useIsoLayoutEffect(() => {
@@ -385,21 +406,48 @@ function Legend({ scheme, endMs }) {
             <path d={`M0 ${CHART_H / 2}H${chartW}`} className="baseline" />
             {chartW > 0 && active && <path d={`M${px(active.frac) + 0.5} 0V${CHART_H}`} className="hairline" />}
             {chartW > 0 && KEY.map((k) => (
-              <path key={k.label} d={`M${px(k.frac)} 5V${CHART_H - 5}`} stroke={returnColor(k.r, scheme)} strokeWidth="2" />
+              <path key={k.frac} d={`M${px(k.frac)} 5V${CHART_H - 5}`} stroke={returnColor(k.r, scheme, mid)} strokeWidth="2" />
             ))}
             {chartW > 0 && (
               <polygon className="now-caret" points={`${nowX - 3.5},0 ${nowX + 3.5},0 ${nowX},4.5`} />
             )}
           </svg>
           {KEY.map((k) => (
-            <span key={k.label} className="key-label key-label--below" style={at(k.frac)}>{k.label}</span>
+            <span key={k.frac} className="key-label key-label--below" style={at(k.frac)}>{k.label}</span>
           ))}
         </div>
       </div>
+      <AverageSlider avg={avg} onAvg={onAvg} />
       {active && (
         <Tooltip ticker={SAMPLE_TICKER} level={sampleLevel(active, endMs)}
-          frac={active.frac} rect={hover.rect} scheme={scheme} />
+          frac={active.frac} rect={hover.rect} scheme={scheme} mid={mid} />
       )}
+    </div>
+  )
+}
+
+// Picks the gray midpoint from AVG_STOPS. Disabled until the data loads,
+// since the loading view has nothing for it to recolor.
+function AverageSlider({ avg, onAvg }) {
+  const i = Math.max(0, AVG_STOPS.findIndex((s) => s.pct === avg))
+  const stop = AVG_STOPS[i]
+  const last = AVG_STOPS.length - 1
+  return (
+    <div className="avg">
+      <label className="avg-head" htmlFor="avg">
+        Market average <strong>{stop.pct}%/yr</strong>
+      </label>
+      <input id="avg" type="range" min="0" max={last} step="1" value={i}
+        disabled={!onAvg}
+        aria-valuetext={`${stop.pct}% a year, ${stop.note}`}
+        onChange={(e) => onAvg(AVG_STOPS[Number(e.target.value)].pct)} />
+      <div className="avg-ticks" aria-hidden="true">
+        {AVG_STOPS.map((s, j) => (
+          <span key={s.pct} className={j === i ? 'is-on' : ''}
+            style={{ left: `calc(var(--thumb) / 2 + (100% - var(--thumb)) * ${j / last})` }}>{s.pct}%</span>
+        ))}
+      </div>
+      <div className="avg-note">{stop.note}</div>
     </div>
   )
 }
@@ -468,7 +516,7 @@ function useScrub(fracs) {
 // One row: symbol, (name on wide screens), the ATH barcode, and
 // the windowed counts. Hover or tap the barcode to inspect an ATH.
 // ─────────────────────────────────────────────────────────────
-const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme }) {
+const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme, mid }) {
   const levels = useMemo(
     () => athLevels(ticker).filter((l) => {
       const f = axis.frac(l.date)
@@ -488,7 +536,7 @@ const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme }) {
     const byColor = new Map()
     if (!chartW) return byColor
     const draw = (x, sum, n) => {
-      const color = returnColor(sum / n, scheme)
+      const color = returnColor(sum / n, scheme, mid)
       byColor.set(color, (byColor.get(color) || '') + `M${x + 0.5} 5V${CHART_H - 5}`)
     }
     let x = null, sum = 0, n = 0
@@ -502,7 +550,7 @@ const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme }) {
     })
     if (x != null) draw(x, sum, n)
     return byColor
-  }, [levels, fracs, chartW, scheme])
+  }, [levels, fracs, chartW, scheme, mid])
 
   // Today's price, placed between the most recent ATH that today's close
   // still clears (the fetch script's currentPriceDate) and the next ATH,
@@ -546,7 +594,7 @@ const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme }) {
         </svg>
       </div>
       {active && (
-        <Tooltip ticker={ticker} level={active} frac={fracs[hover.k]} rect={hover.rect} scheme={scheme} />
+        <Tooltip ticker={ticker} level={active} frac={fracs[hover.k]} rect={hover.rect} scheme={scheme} mid={mid} />
       )}
     </li>
   )
@@ -556,7 +604,7 @@ const TIP_W = 236
 
 // Fixed to the viewport: centered over the hovered ATH, above the row
 // unless the row is too close to the top of the screen.
-function Tooltip({ ticker, level, frac, rect, scheme }) {
+function Tooltip({ ticker, level, frac, rect, scheme, mid }) {
   const x = rect.left + frac * rect.width
   const left = Math.max(8, Math.min(window.innerWidth - TIP_W - 8, x - TIP_W / 2))
   const style = rect.top < 180
@@ -583,7 +631,7 @@ function Tooltip({ ticker, level, frac, rect, scheme }) {
         <span>${level.price.toFixed(2)}</span>
       </div>
       <div className="t-verdict">
-        <span className="t-swatch" style={{ background: returnColor(level.annual, scheme) }} />
+        <span className="t-swatch" style={{ background: returnColor(level.annual, scheme, mid) }} />
         {fmtSignedPct(level.annual)}/yr since
       </div>
       {hasBuy && (
@@ -615,9 +663,10 @@ function Notes({ generatedAt }) {
         </li>
         <li>
           Color is the annualized return from buying at that close to the latest close, with
-          dividends reinvested and no inflation adjustment. {mid}% a year is the figure
-          retirement planning most often assumes, usually after inflation, so it's a lenient
-          bar here.
+          dividends reinvested and no inflation adjustment. Gray starts at {mid}% a year, the
+          figure retirement planning most often assumes, usually after inflation, so it's a
+          lenient bar here. The slider moves gray: 0% asks whether buying lost money, 3% is about
+          inflation, and 10% is the S&P 500's long-run average before inflation.
         </li>
         <li>
           Later opportunities to buy for cheaper counts the trading days after a high that
