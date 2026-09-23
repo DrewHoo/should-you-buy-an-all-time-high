@@ -31,8 +31,11 @@ const RULE = 'rgba(26, 24, 20, 0.16)'
 const HAIR = 'rgba(26, 24, 20, 0.08)'
 
 const MONO = "ui-monospace, 'SF Mono', Menlo, monospace"
-// The page's title face; Big Caslon ships with macOS, where this script runs.
-const SERIF = "'Libre Caslon Text', 'Big Caslon', Georgia, serif"
+// Stands in for the page's Libre Caslon Text, which librsvg can't load.
+// Big Caslon ships with macOS, where this script runs. It has one weight
+// (medium); asking for bold makes the renderer skip it for Georgia Bold.
+const SERIF = "'Big Caslon', Georgia, serif"
+const SERIF_WEIGHT = 500
 
 // A mix of big winners and dot-com peaks that have paid far less than
 // 7% a year since (CSCO, INTC).
@@ -114,7 +117,7 @@ const svg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="${W}" height="${H}" fill="${BG}"/>
 
-  <text x="60" y="96" font-family="${SERIF}" font-size="58" font-weight="700" letter-spacing="-1" fill="${TITLE}">Should You Buy an All-Time High?</text>
+  <text x="60" y="96" font-family="${SERIF}" font-size="60" font-weight="${SERIF_WEIGHT}" letter-spacing="-1" fill="${TITLE}">Should You Buy an All-Time High?</text>
   ${legend}
 
   ${years}
