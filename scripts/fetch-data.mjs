@@ -7,7 +7,8 @@
 // fork-specific additions are:
 //   - `athMaxDD`      per-ATH worst future drawdown (0..1)
 //   - `athCurrentRel` per-ATH ratio of today's close to that ATH price
-// Both power the buyer-perspective color encoding in the leaderboard UI.
+// The page turns athCurrentRel into each ATH's annualized return, which
+// colors the ticks.
 
 import YahooFinance from 'yahoo-finance2'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -79,16 +80,12 @@ function analyze(rows) {
   const athBuyableDays = []
   const athMaxDD = []          // worst post-ATH drawdown (0..1)
   const athCurrentRel = []     // lastClose / athPrice
-  const athAnnualReturn = []   // CAGR from buying at this ATH to today (null if <0.5y)
 
   for (let i = 0; i < n; i++) {
     if (!isAth[i]) continue
     athIndices.push(i)
     const cap = closes[i]
-    const rel = lastClose / cap
-    athCurrentRel.push(rel)
-    const years = (lastTimeMs - Date.parse(dates[i])) / (365.25 * 86400000)
-    athAnnualReturn.push((years >= 0.5 && rel > 0) ? Math.pow(rel, 1 / years) - 1 : null)
+    athCurrentRel.push(lastClose / cap)
 
     if (isPermanentFloor[i]) {
       athRecoveryDays.push(null)
@@ -157,7 +154,6 @@ function analyze(rows) {
     athBuyableDays,
     athMaxDD,
     athCurrentRel,
-    athAnnualReturn,
     stats: {
       firstDate: dates[0],
       lastDate: dates[n - 1],
@@ -195,7 +191,6 @@ async function processOne(ticker) {
     athBuyable: a.athBuyableDays,
     athMaxDD: a.athMaxDD,
     athCurrentRel: a.athCurrentRel,
-    athAnnualReturn: a.athAnnualReturn,
     stats: a.stats,
   }
   await writeFile(

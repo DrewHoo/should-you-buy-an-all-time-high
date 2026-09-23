@@ -3,8 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Should You Buy an All-Time High? — every closing ATH, colored by recovery time</title>
-    <meta name="description" content="Every closing-price all-time high for 200+ tickers, on a shared 30-year timeline, colored by how many trading days the price stayed at-or-below it afterward. Sometimes yes; sometimes brutally no." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f1ead6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)" />
+    <title>Should You Buy an All-Time High? — every closing ATH, colored by the return since</title>
+    <meta name="description" content="Every closing-price all-time high for 200+ tickers on one shared timeline, colored by the annual return a buyer at that peak has earned since, against the usual 7% assumption. Sometimes yes; sometimes brutally no." />
 
     <link rel="icon" type="image/svg+xml" href="/should-you-buy-an-all-time-high/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/should-you-buy-an-all-time-high/favicon-32.png" />
@@ -14,21 +17,21 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Should You Buy an All-Time High?" />
     <meta property="og:title" content="Should You Buy an All-Time High?" />
-    <meta property="og:description" content="Every closing-price all-time high in 200+ tickers, plotted on a shared 30-year timeline and colored by how long the price stayed underwater afterward. Green = bought the floor; red = years underwater." />
+    <meta property="og:description" content="Every closing-price all-time high in 200+ tickers, colored by what a buyer at that peak has made per year since: green beats the usual 7%, red falls short." />
     <meta property="og:url" content="https://drewhoover.com/should-you-buy-an-all-time-high/" />
     <meta property="og:image" content="https://drewhoover.com/should-you-buy-an-all-time-high/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="A stylized leaderboard row of all-time-high ticks, colored from green (never undercut) through amber to deep red (a decade underwater)." />
+    <meta property="og:image:alt" content="Rows of all-time-high ticks for SPY, QQQ, AAPL, MSFT, NVDA, CSCO, INTC, GLD and BTC since 1999, colored from dark red (well under 7% a year since) through gray to green (well over)." />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Should You Buy an All-Time High?" />
-    <meta name="twitter:description" content="Every closing-price all-time high in 200+ tickers, colored by how long the price stayed underwater afterward." />
+    <meta name="twitter:description" content="Every closing-price all-time high in 200+ tickers, colored by what a buyer at that peak has made per year since." />
     <meta name="twitter:image" content="https://drewhoover.com/should-you-buy-an-all-time-high/og.png" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Libre+Caslon+Text:wght@400;700&display=swap" rel="stylesheet" />
 
     <script src="https://drewhoover.com/embed/back-bar.js" async></script>
     <script src="https://drewhoover.com/embed/giscus.js" async></script>

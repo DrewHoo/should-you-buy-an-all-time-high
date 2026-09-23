@@ -1,47 +1,27 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
-  athLevels, colorByTime, COLOR,
-  AXIS_END_MS, AXIS_YEARS, AXIS_INSET_FRAC, dateToAxis,
-  windowedAthStats,
+  athLevels, makeAxis, RANGES, RETURN_MID, RETURN_SPAN, returnColor,
 } from './chart-utils.js'
 
-function formatTimeSince(dateStr) {
-  const ms = AXIS_END_MS - Date.parse(dateStr)
-  const days = ms / 86400000
-  if (days < 1) return 'today'
-  if (days < 30) return `${Math.round(days)} days ago`
-  const months = days / 30.44
-  if (months < 18) return `${Math.round(months)} months ago`
-  const years = days / 365.25
-  return `${years.toFixed(1)} years ago`
-}
-
-function formatThousandBuy(level) {
-  const rel = level.currentRel
-  if (!Number.isFinite(rel) || rel <= 0) return null
-  const value = 1000 * rel
-  const pct = (rel - 1) * 100
-  const dollars = `$${Math.round(value).toLocaleString('en-US')}`
-  const deltaSign = pct >= 0 ? '+' : '−'
-  const deltaPct = Math.abs(pct)
-  const delta = `${deltaSign}${deltaPct < 10 ? deltaPct.toFixed(1) : Math.round(deltaPct)}%`
-  return { dollars, delta, isLoss: pct < 0 }
-}
-
-function formatAnnual(level) {
-  const a = level.annual
-  if (a == null || !Number.isFinite(a)) return null
-  const pct = a * 100
-  const sign = pct >= 0 ? '+' : '−'
-  const abs = Math.abs(pct)
-  return `${sign}${abs < 10 ? abs.toFixed(1) : Math.round(abs)}%/yr`
-}
-
 const BASE = import.meta.env.BASE_URL
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// Bare YYYY-MM-DD strings, formatted without a Date so no timezone can
+// shift them a day.
+function fmtDate(iso) {
+  const [y, m, d] = iso.split('-')
+  return `${MONTHS[m - 1]} ${+d}, ${y}`
+}
+
+function fmtSignedPct(frac) {
+  const pct = frac * 100
+  const abs = Math.abs(pct)
+  return `${pct >= 0 ? '+' : '−'}${abs < 10 ? abs.toFixed(1) : Math.round(abs)}%`
+}
 
 // Popular tickers, in display order, surfaced by the default "featured" sort.
 // Hand-curated rather than algorithmic so the landing view tells a coherent
-// "shared 30-year timeline" story (indexes, Mag 7, semis, BTC).
+// shared-timeline story (indexes, Mag 7, semis, gold, BTC).
 const FEATURED = [
   'SPY', 'QQQ', 'VOO', 'DIA', 'IWM',
   'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA', 'TSLA',
@@ -52,8 +32,15 @@ const FEATURED = [
 ]
 const FEATURED_RANK = new Map(FEATURED.map((s, i) => [s, i]))
 
-const VALID_FILTERS = new Set(['all', 'stock', 'etf', 'commodity', 'crypto'])
-const VALID_SORTS = new Set(['featured', 'athCount', 'permCount', 'athsPerYear'])
+const CATEGORIES = [
+  ['all', 'All'], ['stock', 'Stocks'], ['etf', 'ETFs'],
+  ['commodity', 'Metals'], ['crypto', 'Crypto'],
+]
+
+const SORTS = [['featured', 'Featured'], ['lexicographic', 'Lexicographic']]
+
+const VALID_FILTERS = new Set(CATEGORIES.map(([v]) => v))
+const VALID_SORTS = new Set(SORTS.map(([v]) => v))
 
 function readUrlState() {
   if (typeof window === 'undefined') return { filter: 'all', sortKey: 'featured', query: '' }
@@ -77,20 +64,31 @@ function writeUrlState({ filter, sortKey, query }) {
   window.history.replaceState(null, '', path + window.location.hash)
 }
 
-function useIsMobile() {
-  const [is, setIs] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 800px)').matches)
+// The widest RANGES tier whose min-width media query matches.
+function useRange() {
+  const pick = () => RANGES.find((r) => window.matchMedia(`(min-width: ${r.minWidth}px)`).matches)
+  const [range, setRange] = useState(pick)
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 800px)')
-    const update = () => setIs(mq.matches)
-    if (mq.addEventListener) mq.addEventListener('change', update)
-    else mq.addListener(update)
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener('change', update)
-      else mq.removeListener(update)
-    }
+    const mqs = RANGES.map((r) => window.matchMedia(`(min-width: ${r.minWidth}px)`))
+    const update = () => setRange(pick())
+    mqs.forEach((mq) => mq.addEventListener('change', update))
+    return () => mqs.forEach((mq) => mq.removeEventListener('change', update))
   }, [])
-  return is
+  return range
+}
+
+// 'light' or 'dark', following the viewer's system setting. The chart's
+// tick colors are computed in JS, so they can't just ride on CSS vars.
+const DARK_QUERY = '(prefers-color-scheme: dark)'
+function useColorScheme() {
+  const [scheme, setScheme] = useState(() => (window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light'))
+  useEffect(() => {
+    const mq = window.matchMedia(DARK_QUERY)
+    const update = () => setScheme(mq.matches ? 'dark' : 'light')
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return scheme
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -155,62 +153,63 @@ export default function App() {
   return <Leaderboard tickers={tickers} generatedAt={index?.generatedAt} />
 }
 
-function Mast() {
+function Mast({ children }) {
   return (
     <header className="mast">
-      <div className="mast-title">Should You Buy <em>an All-Time High?</em></div>
-      <div className="mast-sub">every closing all-time high, colored by how long buyers stayed underwater</div>
+      <h1>Should You Buy an All-Time High?</h1>
+      <p className="deck">
+        Every colored tick on the timeline represents an all-time high for its security. The
+        color represents how well you'd have done by buying it: green if you'd have beaten the
+        market average, grey for average, red for underperforming the market. Hover or tap
+        individual all-time highs to learn more.
+      </p>
+      {children}
     </header>
   )
-}
-
-// All non-featured sort options pull from windowedAthStats and rank descending.
-// Featured falls through to the athCount display so the badge still says
-// something useful in that mode.
-function rowMetric(t, sortKey) {
-  const w = windowedAthStats(t)
-  if (sortKey === 'permCount') {
-    return { value: w.permCount, big: w.permCount.toLocaleString('en-US'), suffix: 'never undercut',
-      cap: `${w.athCount.toLocaleString('en-US')} ATHs · ${w.athsPerYear.toFixed(1)}/yr` }
-  }
-  if (sortKey === 'athsPerYear') {
-    return { value: w.athsPerYear, big: w.athsPerYear.toFixed(1), suffix: 'ATHs/yr',
-      cap: `${w.athCount.toLocaleString('en-US')} ATHs · ${w.permCount} unbroken` }
-  }
-  return { value: w.athCount, big: w.athCount.toLocaleString('en-US'), suffix: 'ATHs',
-    cap: `${w.permCount} unbroken · ${w.athsPerYear.toFixed(1)}/yr` }
 }
 
 function featuredRank(symbol) {
   return FEATURED_RANK.has(symbol) ? FEATURED_RANK.get(symbol) : Infinity
 }
 
+// Every row's SVG is drawn in pixel space at this height, so ticks stay
+// crisp instead of being stretched by a viewBox.
+const CHART_H = 23
+
 function Leaderboard({ tickers, generatedAt }) {
   const initial = useMemo(readUrlState, [])
   const [filter, setFilter] = useState(initial.filter)
   const [sortKey, setSortKey] = useState(initial.sortKey)
   const [query, setQuery] = useState(initial.query)
+  const range = useRange()
+  const scheme = useColorScheme()
   const [chartEl, setChartEl] = useState(null)
-  const [chartBounds, setChartBounds] = useState(null)
-  const isMobile = useIsMobile()
+  const [chartW, setChartW] = useState(0)
 
   useEffect(() => { writeUrlState({ filter, sortKey, query }) }, [filter, sortKey, query])
 
+  // Every row's chart cell has the same width, so measure the header's once.
   useLayoutEffect(() => {
     if (!chartEl) return
-    const measure = () => {
-      const r = chartEl.getBoundingClientRect()
-      setChartBounds({ left: r.left, width: r.width })
-    }
+    const measure = () => setChartW(Math.floor(chartEl.getBoundingClientRect().width))
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(chartEl)
-    window.addEventListener('resize', measure)
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
+    return () => ro.disconnect()
   }, [chartEl])
+
+  // The axis ends at the latest close in the data, not the viewer's clock,
+  // so the right edge always means "most recent close".
+  const endMs = useMemo(
+    () => Math.max(...tickers.map((t) => Date.parse(t.stats.lastDate))),
+    [tickers],
+  )
+  const axis = useMemo(() => makeAxis(range.fromYear, endMs), [range.fromYear, endMs])
+
+  const gridD = useMemo(() => {
+    if (!chartW) return ''
+    return axis.ticks.map((t) => `M${Math.round(t.frac * (chartW - 1)) + 0.5} 0V${CHART_H}`).join('')
+  }, [axis, chartW])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -221,53 +220,30 @@ function Leaderboard({ tickers, generatedAt }) {
     })
   }, [tickers, filter, query])
 
+  // Featured puts the curated list first, then everything else A–Z;
+  // lexicographic is A–Z by symbol throughout.
   const sorted = useMemo(() => {
+    const bySymbol = (a, b) => a.symbol.localeCompare(b.symbol)
     const arr = [...filtered]
     if (sortKey === 'featured') {
-      arr.sort((a, b) => {
-        const ra = featuredRank(a.symbol), rb = featuredRank(b.symbol)
-        if (ra !== rb) return ra - rb
-        // Anything not in FEATURED falls back to athCount descending.
-        return rowMetric(b, 'athCount').value - rowMetric(a, 'athCount').value
-      })
+      arr.sort((a, b) => (featuredRank(a.symbol) - featuredRank(b.symbol)) || bySymbol(a, b))
     } else {
-      arr.sort((a, b) => rowMetric(b, sortKey).value - rowMetric(a, sortKey).value)
+      arr.sort(bySymbol)
     }
     return arr
   }, [filtered, sortKey])
 
-  const displayKey = sortKey === 'featured' ? 'athCount' : sortKey
-  const metricMax = useMemo(() => {
-    let max = 0
-    for (const t of sorted) {
-      const v = rowMetric(t, displayKey).value
-      if (v > max) max = v
-    }
-    return max
-  }, [sorted, displayKey])
-
   return (
     <main>
-      <BackgroundTimeline bounds={chartBounds} />
-      <Mast />
-
-      <section className="lede-row">
-        <p className="lede">
-          Sometimes yes — green ticks below haven't been undercut yet, so a buyer at that peak got in at what is (so far!) a permanent floor.
-          Sometimes brutally no — red ticks left buyers underwater for years (the 2000 dot-com cluster is hard to miss).
-          Every closing-price all-time high in {tickers.length} tickers, on a shared {AXIS_YEARS}-year timeline.
-          Tap or hover any row to scrub the ladder.
-        </p>
-        <Legend />
-      </section>
+      <Mast>
+        <Legend scheme={scheme} endMs={axis.endMs} />
+      </Mast>
 
       <section className="controls">
-        <div className="seg">
-          {[
-            ['all', 'All'], ['stock', 'Stocks'], ['etf', 'ETFs'],
-            ['commodity', 'Commodities'], ['crypto', 'Crypto'],
-          ].map(([v, l]) => (
-            <button key={v} className={`seg-btn ${filter === v ? 'is-active' : ''}`} onClick={() => setFilter(v)}>
+        <div className="seg" role="group" aria-label="Category">
+          {CATEGORIES.map(([v, l]) => (
+            <button key={v} className={`seg-btn ${filter === v ? 'is-active' : ''}`}
+              aria-pressed={filter === v} onClick={() => setFilter(v)}>
               {l}
             </button>
           ))}
@@ -276,7 +252,7 @@ function Leaderboard({ tickers, generatedAt }) {
           <input
             type="search"
             className="search-input"
-            placeholder="Search ticker or name…"
+            placeholder="Search ticker or name"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search ticker or name"
@@ -285,298 +261,352 @@ function Leaderboard({ tickers, generatedAt }) {
             <button className="search-clear" onClick={() => setQuery('')} aria-label="Clear search">×</button>
           )}
         </div>
-        <div className="seg seg--right">
-          <span className="seg-label">sort</span>
-          {[
-            ['featured', 'featured'],
-            ['athCount', 'most ATHs'],
-            ['permCount', 'ATHs that were never undercut'],
-            ['athsPerYear', 'most ATHs per year'],
-          ].map(([v, l]) => (
-            <button key={v} className={`seg-btn ${sortKey === v ? 'is-active' : ''}`} onClick={() => setSortKey(v)}>
-              {l}
-            </button>
-          ))}
-        </div>
+        <label className="sort">
+          Sort
+          <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
+            {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
       </section>
 
-      {sorted.length === 0 && (
-        <p className="empty">No tickers match “{query}”.</p>
-      )}
+      <div className="board">
+        <div className="row row--head">
+          <div className="c-sym" />
+          <div className="c-name" />
+          <div className="c-chart" ref={setChartEl}>
+            {axis.ticks.map((t) => (
+              <span key={t.year} className="yr" style={{ left: `${t.frac * 100}%` }}>{t.year}</span>
+            ))}
+          </div>
+        </div>
 
-      <ol className="board">
-        {sorted.map((t, i) => (
-          <Row key={t.symbol} ticker={t} rank={i + 1}
-            chartProbeRef={i === 0 ? setChartEl : null}
-            sortKey={displayKey} metricMax={metricMax}
-            isMobile={isMobile} />
-        ))}
-      </ol>
+        {sorted.length === 0 && (
+          <p className="empty">No tickers match “{query}”.</p>
+        )}
 
-      <Methodology generatedAt={generatedAt} tickerCount={tickers.length} />
+        <ol className="rows">
+          {sorted.map((t) => (
+            <Row key={t.symbol} ticker={t} axis={axis} chartW={chartW} gridD={gridD} scheme={scheme} />
+          ))}
+        </ol>
+      </div>
+
+      <Notes generatedAt={generatedAt} />
     </main>
   )
 }
 
-function Legend() {
-  const items = [
-    [COLOR.victory,  'never undercut (so far!)'],
-    [COLOR.short,    '≤ 3 months at-or-below'],
-    [COLOR.safe,     '3–6 months'],
-    [COLOR.meh,      '6–12 months'],
-    [COLOR.scary,    '1–2 years'],
-    [COLOR.disaster, '2+ years underwater'],
-  ]
+const pctLabel = (r) => `${r < 0 ? '−' : r > 0 ? '+' : ''}${Math.round(Math.abs(r) * 100)}%`
+
+// The legend: a made-up row, about a third of the screen wide on wider
+// screens, with one tick per color, oldest to newest, each labeled with
+// what it stands for. Ticks are 2px here (1px on the board) so a lone one
+// reads. Hovering or tapping one opens the same popover the board does.
+// Each tick is a made-up buy, consistent with one today's price: the
+// green one never got cheaper, the red one is still below today.
+const SAMPLE_TODAY = 165.6
+const KEY = [
+  { frac: 0.15, r: RETURN_MID + RETURN_SPAN, label: `≥${pctLabel(RETURN_MID + RETURN_SPAN)}/yr`,
+    years: 16, buyable: 0, maxDD: 0 },
+  { frac: 0.45, r: RETURN_MID, label: `${pctLabel(RETURN_MID).slice(1)}/yr`,
+    years: 10, buyable: 41, maxDD: 0.09 },
+  { frac: 0.75, r: RETURN_MID - RETURN_SPAN, label: `≤${pctLabel(RETURN_MID - RETURN_SPAN)}/yr`,
+    years: 2, buyable: 250, maxDD: 0.31 },
+]
+const KEY_FRACS = KEY.map((k) => k.frac)
+// Today's price sits between the gray and red ticks: above the gray high
+// (so that buyer is up 7%/yr) and below the red one (so that buyer is down).
+const KEY_NOW = 0.6
+const SAMPLE_TICKER = { symbol: 'TICKER', name: 'Example Co.' }
+
+function sampleLevel(k, endMs) {
+  const d = new Date(endMs)
+  d.setUTCFullYear(d.getUTCFullYear() - k.years)
+  const rel = (1 + k.r) ** k.years
+  return {
+    date: d.toISOString().slice(0, 10),
+    price: SAMPLE_TODAY / rel,
+    annual: k.r,
+    currentRel: rel,
+    buyable: k.buyable,
+    maxDD: k.maxDD,
+  }
+}
+
+function Legend({ scheme, endMs }) {
+  const [chartEl, setChartEl] = useState(null)
+  const [chartW, setChartW] = useState(0)
+  useLayoutEffect(() => {
+    if (!chartEl) return
+    const measure = () => setChartW(Math.floor(chartEl.getBoundingClientRect().width))
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(chartEl)
+    return () => ro.disconnect()
+  }, [chartEl])
+  const { hover, svgRef, handlers } = useScrub(KEY_FRACS)
+
+  const px = (frac) => Math.round(frac * (chartW - 1)) + 1
+  // Labels sit centered on their tick.
+  const at = (frac) => ({ left: `calc(${frac * 100}% + 1px)`, transform: 'translateX(-50%)' })
+  const nowX = px(KEY_NOW)
+  const active = hover ? KEY[hover.k] : null
+
   return (
     <div className="legend">
-      {items.map(([c, l], i) => (
-        <span key={i} className="legend-item">
-          <svg width="20" height="14" aria-hidden="true">
-            <line x1="10" y1="0" x2="10" y2="14" stroke={c} strokeWidth="3" />
+      <div className="row key">
+        <div className="c-sym">TICKER</div>
+        <div className="c-chart" ref={setChartEl}>
+          <span className="key-label key-label--above" style={at(KEY_NOW)}>today's price</span>
+          <svg ref={svgRef} width={chartW} height={CHART_H} {...handlers}>
+            <path d={`M0 ${CHART_H / 2}H${chartW}`} className="baseline" />
+            {chartW > 0 && active && <path d={`M${px(active.frac) + 0.5} 0V${CHART_H}`} className="hairline" />}
+            {chartW > 0 && KEY.map((k) => (
+              <path key={k.label} d={`M${px(k.frac)} 5V${CHART_H - 5}`} stroke={returnColor(k.r, scheme)} strokeWidth="2" />
+            ))}
+            {chartW > 0 && (
+              <polygon className="now-caret" points={`${nowX - 3.5},0 ${nowX + 3.5},0 ${nowX},4.5`} />
+            )}
           </svg>
-          {l}
-        </span>
-      ))}
-      <span className="legend-item">
-        <svg width="20" height="14" aria-hidden="true">
-          <polygon points="6,0 14,0 10,4" fill={COLOR.disaster} />
-          <line x1="10" y1="0" x2="10" y2="14" stroke={COLOR.disaster} strokeDasharray="3 2" strokeWidth="2" />
-        </svg>
-        today
-      </span>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// One leaderboard row: rank + symbol/name + scrubbable barcode +
-// permanent-share bar + drawdown indicator.
-// ─────────────────────────────────────────────────────────────
-function Row({ ticker, rank, chartProbeRef, sortKey, metricMax, isMobile }) {
-  const levels = useMemo(
-    () => athLevels(ticker).filter(l => dateToAxis(l.date) >= 0),
-    [ticker],
-  )
-  const [hover, setHover] = useState(null)
-  const svgRef = useRef(null)
-
-  const W = 840, H = 64
-  const left = 12, right = W - 12
-  const yMid = H / 2
-  const xOfFrac = (frac) => left + frac * (right - left)
-  const xOfDate = (dateStr) => xOfFrac(Math.max(0, Math.min(1, dateToAxis(dateStr))))
-
-  function nearestByAxis(axisPos) {
-    if (!levels.length) return null
-    let best = levels[0], bd = Math.abs(dateToAxis(best.date) - axisPos)
-    for (let i = 1; i < levels.length; i++) {
-      const d = Math.abs(dateToAxis(levels[i].date) - axisPos)
-      if (d < bd) { bd = d; best = levels[i] }
-    }
-    return best
-  }
-
-  function onMove(e) {
-    const rect = svgRef.current.getBoundingClientRect()
-    const px = e.clientX - rect.left
-    const axisPos = Math.max(0, Math.min(1, px / rect.width))
-    const a = nearestByAxis(axisPos)
-    if (!a) return
-    const xLocal = Math.max(0, Math.min(1, dateToAxis(a.date))) * rect.width
-    setHover({ axisPos, xLocal, a, chartW: rect.width })
-  }
-
-  const active = hover?.a || null
-  const metric = rowMetric(ticker, sortKey)
-  const barPct = metricMax > 0 ? Math.min(100, (metric.value / metricMax) * 100) : 0
-
-  return (
-    <li className="row">
-      <div className="row-rank">{String(rank).padStart(2, '0')}</div>
-      <div className="row-name">
-        <div className="row-symbol">{ticker.symbol}</div>
-        <div className="row-fullname">{ticker.name}</div>
-      </div>
-      <div ref={chartProbeRef} className="row-chart">
-        <svg ref={svgRef}
-          width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
-          onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
-          onTouchMove={(e) => { if (e.touches[0]) onMove({ clientX: e.touches[0].clientX }) }}
-          onTouchEnd={() => setHover(null)}
-        >
-          <line className="axis-line" x1={left - 4} x2={right + 4} y1={yMid} y2={yMid} />
-          {levels.map((l, i) => {
-            const isActive = active && active.idx === l.idx
-            const stroke = colorByTime(l)
-            const half = l.perm ? 26 : 14
-            return (
-              <line key={i}
-                x1={xOfDate(l.date)} x2={xOfDate(l.date)}
-                y1={yMid - half} y2={yMid + half}
-                stroke={stroke}
-                strokeWidth={isActive ? 3.4 : l.perm ? 3 : 1.4} />
-            )
-          })}
-          {(() => {
-            const markerDate = ticker.stats.currentPriceDate ?? ticker.stats.lastDate
-            const markerFrac = Math.max(0, Math.min(1, dateToAxis(markerDate)))
-            const nx = xOfFrac(markerFrac)
-            return (
-              <>
-                <polygon className="now-flag"
-                  points={`${nx - 5},0 ${nx + 5},0 ${nx},7`} />
-                <line className="now-line"
-                  x1={nx} x2={nx}
-                  y1={0} y2={H} />
-              </>
-            )
-          })()}
-          {hover && active && (
-            <line stroke={COLOR.ink} strokeOpacity="0.55" strokeWidth="0.7"
-              x1={xOfDate(active.date)} x2={xOfDate(active.date)} y1={4} y2={H - 4}
-              strokeDasharray="2 3" />
-          )}
-        </svg>
-        {hover && active && (
-          <Tooltip ticker={ticker} level={active}
-            x={hover.xLocal}
-            y={yMid}
-            chartW={hover.chartW}
-            side={hover.axisPos > 0.6 ? 'left' : 'right'}
-            placement={isMobile ? 'above' : 'side'} />
-        )}
-      </div>
-      <div className="row-pct">
-        <div className="pct-bar">
-          <div className="pct-track">
-            <div className="pct-fill" style={{ width: `${barPct}%` }} />
-          </div>
-          <span className="pct-num">{metric.big} <span className="pct-suffix">{metric.suffix}</span></span>
+          {KEY.map((k) => (
+            <span key={k.label} className="key-label key-label--below" style={at(k.frac)}>{k.label}</span>
+          ))}
         </div>
-        <div className="pct-cap">{metric.cap}</div>
       </div>
-    </li>
-  )
-}
-
-function Tooltip({ ticker, level, x, y, side, placement = 'side', chartW }) {
-  if (!level) return null
-  const above = placement === 'above'
-  const W = above ? 220 : 230
-  const offset = 12
-  // When floating above on mobile, clamp the horizontal anchor so the
-  // tooltip stays inside the chart instead of escaping the right/left edge.
-  let style
-  if (above) {
-    const pad = 6
-    const cw = chartW || W
-    const effW = Math.min(W, cw - pad * 2)
-    const half = effW / 2
-    const minX = half + pad
-    const maxX = cw - half - pad
-    const anchorX = minX > maxX ? cw / 2 : Math.max(minX, Math.min(maxX, x))
-    style = { left: anchorX, top: -8, width: effW, transform: 'translate(-50%, -100%)' }
-  } else {
-    style = { left: side === 'right' ? x + offset : x - W - offset, top: y, width: W, transform: 'translateY(-50%)' }
-  }
-  const c = colorByTime(level)
-  const yrs = level.buyable / 252
-  const buy = formatThousandBuy(level)
-  let detail
-  if (level.perm) {
-    detail = (
-      <div className="t-row t-row--big" style={{ color: c }}>
-        not undercut yet (so far!) — {formatTimeSince(level.date)}
-      </div>
-    )
-  } else {
-    detail = (
-      <>
-        <div className="t-row t-row--big" style={{ color: c }}>
-          {yrs >= 1 ? `${yrs.toFixed(1)} years at-or-below` : `${level.buyable} days at-or-below`}
-        </div>
-        <div className="t-row t-row--sub">
-          worst drawdown −{(level.maxDD * 100).toFixed(0)}% · first undercut after {level.recov} days
-        </div>
-      </>
-    )
-  }
-  const annual = formatAnnual(level)
-  return (
-    <div className={`tip ${above ? 'tip--above' : ''}`} style={style}>
-      <div className="t-eyebrow">{ticker.symbol} ATH</div>
-      <div className="t-date">{level.date}</div>
-      <div className="t-price">${level.price.toFixed(2)}</div>
-      {detail}
-      {buy && (
-        <div className={`t-row t-row--buy ${buy.isLoss ? 'is-loss' : 'is-gain'}`}>
-          $1,000 then → <strong>{buy.dollars}</strong> today ({buy.delta})
-          {annual && <span className="t-row--annual"> · {annual} avg</span>}
-        </div>
+      {active && (
+        <Tooltip ticker={SAMPLE_TICKER} level={sampleLevel(active, endMs)}
+          frac={active.frac} rect={hover.rect} scheme={scheme} />
       )}
     </div>
   )
 }
 
-const BG_MARKS = [
-  { date: '2000-03-10', year: '2000', tag: 'dot-com' },
-  { date: '2008-09-15', year: '2008', tag: 'GFC' },
-  { date: '2020-03-23', year: '2020', tag: 'COVID' },
-]
+// Hover with a mouse; tap or scrub sideways with a finger (a vertical
+// swipe scrolls the page instead, via touch-action: pan-y). `fracs` are
+// the sorted x positions (0..1) of an svg's marks. While one is active,
+// `hover` holds its index and the svg's rect; popovers are fixed or
+// floating, so any scroll or a tap elsewhere closes it.
+function useScrub(fracs) {
+  const [hover, setHover] = useState(null)
+  const svgRef = useRef(null)
+  const touchX = useRef(null)
 
-function BackgroundTimeline({ bounds }) {
-  if (!bounds) return null
-  const axisLeft = bounds.left + bounds.width * AXIS_INSET_FRAC
-  const axisRight = bounds.left + bounds.width * (1 - AXIS_INSET_FRAC)
-  const axisWidth = axisRight - axisLeft
+  function nearestAt(clientX) {
+    if (!fracs.length) return null
+    const rect = svgRef.current.getBoundingClientRect()
+    const f = (clientX - rect.left) / rect.width
+    let lo = 0, hi = fracs.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (fracs[mid] < f) lo = mid + 1
+      else hi = mid
+    }
+    if (lo > 0 && f - fracs[lo - 1] < fracs[lo] - f) lo--
+    return { k: lo, rect }
+  }
+
+  function show(e) {
+    const hit = nearestAt(e.clientX)
+    if (hit) setHover((h) => (h && h.k === hit.k ? h : hit))
+  }
+
+  const handlers = {
+    onPointerMove: (e) => {
+      if (e.pointerType === 'mouse') show(e)
+      else if (touchX.current != null && Math.abs(e.clientX - touchX.current) > 4) show(e)
+    },
+    onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHover(null) },
+    onPointerDown: (e) => { if (e.pointerType !== 'mouse') touchX.current = e.clientX },
+    onPointerUp: (e) => {
+      if (e.pointerType === 'mouse') return
+      touchX.current = null
+      show(e)
+    },
+    onPointerCancel: () => { touchX.current = null; setHover(null) },
+  }
+
+  const open = hover != null
+  useEffect(() => {
+    if (!open) return
+    const close = () => setHover(null)
+    const outside = (e) => { if (!svgRef.current?.contains(e.target)) close() }
+    window.addEventListener('scroll', close, { passive: true })
+    window.addEventListener('pointerdown', outside)
+    return () => {
+      window.removeEventListener('scroll', close)
+      window.removeEventListener('pointerdown', outside)
+    }
+  }, [open])
+
+  return { hover, svgRef, handlers }
+}
+
+// ─────────────────────────────────────────────────────────────
+// One row: symbol, (name on wide screens), the ATH barcode, and
+// the windowed counts. Hover or tap the barcode to inspect an ATH.
+// ─────────────────────────────────────────────────────────────
+const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme }) {
+  const levels = useMemo(
+    () => athLevels(ticker).filter((l) => {
+      const f = axis.frac(l.date)
+      return f >= 0 && f <= 1
+    }),
+    [ticker, axis],
+  )
+  const fracs = useMemo(() => levels.map((l) => axis.frac(l.date)), [levels, axis])
+  const { hover, svgRef, handlers } = useScrub(fracs)
+
+  const px = (frac) => Math.round(Math.max(0, Math.min(1, frac)) * (chartW - 1))
+
+  // One tick per pixel column, colored by the mean return of the ATHs
+  // that land in it, then one path per color: a busy row has 800+ ATHs,
+  // most of them sharing a column with a neighbor.
+  const paths = useMemo(() => {
+    const byColor = new Map()
+    if (!chartW) return byColor
+    const draw = (x, sum, n) => {
+      const color = returnColor(sum / n, scheme)
+      byColor.set(color, (byColor.get(color) || '') + `M${x + 0.5} 5V${CHART_H - 5}`)
+    }
+    let x = null, sum = 0, n = 0
+    levels.forEach((l, k) => {
+      const lx = px(fracs[k])
+      if (lx !== x) {
+        if (x != null) draw(x, sum, n)
+        x = lx; sum = 0; n = 0
+      }
+      sum += l.annual; n++
+    })
+    if (x != null) draw(x, sum, n)
+    return byColor
+  }, [levels, fracs, chartW, scheme])
+
+  // Today's price, placed between the most recent ATH that today's close
+  // still clears (the fetch script's currentPriceDate) and the next ATH,
+  // which it doesn't. Sitting on either tick would claim today's price
+  // equals that high. A ticker at its high has no next ATH, so the marker
+  // lands on its latest one. A ticker below even its first close (DASH,
+  // KHC) clears nothing; the fetch script falls back to that first ATH, and
+  // the marker stays there at the start of its history.
+  const nowDate = ticker.stats.currentPriceDate
+  let nowX = null
+  if (nowDate) {
+    const k = ticker.athIdx.findIndex((i) => ticker.dates[i] === nowDate)
+    const clears = k >= 0 && ticker.closes[ticker.athIdx[k]] <= ticker.stats.lastClose
+    const next = clears ? ticker.athIdx[k + 1] : undefined
+    const x0 = px(axis.frac(nowDate))
+    nowX = next == null ? x0 : Math.round((x0 + px(axis.frac(ticker.dates[next]))) / 2)
+  }
+  const historyX = px(axis.frac(ticker.dates[0]))
+
+  const active = hover ? levels[hover.k] : null
+
   return (
-    <div className="bg-timeline" aria-hidden>
-      {BG_MARKS.map(m => {
-        const t = dateToAxis(m.date)
-        if (t < 0 || t > 1) return null
-        const x = axisLeft + t * axisWidth
-        return (
-          <div key={m.year} className="bg-timeline-mark" style={{ left: `${x}px` }}>
-            <div className="bg-timeline-label">
-              <span className="bg-timeline-year">{m.year}</span>
-              <span className="bg-timeline-tag">{m.tag}</span>
-            </div>
-          </div>
-        )
-      })}
+    <li className="row">
+      <div className="c-sym" title={ticker.name}>{ticker.symbol}</div>
+      <div className="c-name">{ticker.name}</div>
+      <div className="c-chart">
+        <svg ref={svgRef} width={chartW} height={CHART_H} {...handlers}>
+          <path d={gridD} className="grid" />
+          {historyX < chartW - 1 && (
+            <path d={`M${historyX} ${CHART_H / 2}H${chartW}`} className="baseline" />
+          )}
+          {[...paths].map(([color, d]) => (
+            <path key={color} d={d} stroke={color} />
+          ))}
+          {nowX != null && (
+            <polygon className="now-caret" points={`${nowX - 3.5},0 ${nowX + 3.5},0 ${nowX},4.5`} />
+          )}
+          {active && (
+            <path d={`M${px(fracs[hover.k]) + 0.5} 0V${CHART_H}`} className="hairline" />
+          )}
+        </svg>
+      </div>
+      {active && (
+        <Tooltip ticker={ticker} level={active} frac={fracs[hover.k]} rect={hover.rect} scheme={scheme} />
+      )}
+    </li>
+  )
+})
+
+const TIP_W = 236
+
+// Fixed to the viewport: centered over the hovered ATH, above the row
+// unless the row is too close to the top of the screen.
+function Tooltip({ ticker, level, frac, rect, scheme }) {
+  const x = rect.left + frac * rect.width
+  const left = Math.max(8, Math.min(window.innerWidth - TIP_W - 8, x - TIP_W / 2))
+  const style = rect.top < 180
+    ? { left, top: rect.bottom + 8, width: TIP_W }
+    : { left, bottom: window.innerHeight - rect.top + 8, width: TIP_W }
+
+  const rel = level.currentRel
+  const hasBuy = Number.isFinite(rel) && rel > 0
+
+  // Trading days after this high that closed at or below it.
+  const cheaper = level.buyable
+  const laterNote = cheaper > 0
+    ? [
+        rel < 1 && 'still cheaper today',
+        level.maxDD >= 0.005 && `as much as ${Math.round(level.maxDD * 100)}% lower`,
+      ].filter(Boolean).join(' · ')
+    : "it hasn't closed this low since"
+
+  return (
+    <div className="tip" style={style} role="tooltip">
+      <div className="t-eyebrow">{ticker.symbol} · {ticker.name}</div>
+      <div className="t-head">
+        <span>{fmtDate(level.date)}</span>
+        <span>${level.price.toFixed(2)}</span>
+      </div>
+      <div className="t-verdict">
+        <span className="t-swatch" style={{ background: returnColor(level.annual, scheme) }} />
+        {fmtSignedPct(level.annual)}/yr since
+      </div>
+      {hasBuy && (
+        <div className="t-sub">
+          $1,000 → <strong>${Math.round(1000 * rel).toLocaleString('en-US')}</strong> today
+        </div>
+      )}
+      <div className="t-later">
+        <div className="t-later-label">Later opportunities to buy for cheaper</div>
+        <div className="t-later-num">
+          {cheaper > 0 ? <>{cheaper.toLocaleString('en-US')}<small>days</small></> : 'None'}
+        </div>
+        {laterNote && <div className="t-later-note">{laterNote}</div>}
+      </div>
     </div>
   )
 }
 
-function Methodology({ generatedAt, tickerCount }) {
+function Notes({ generatedAt }) {
+  const [phone, tablet, wide] = [...RANGES].reverse()
+  const mid = Math.round(RETURN_MID * 100)
   return (
-    <section className="meth">
-      <h3>Notes</h3>
+    <section className="notes">
+      <h2>Notes</h2>
       <ul>
         <li>
-          {tickerCount} tickers — Nasdaq 100 + S&amp;P 100 (deduped union) plus
-          major tech / growth / sector / semi ETFs, gold and silver, and a
-          few flavors of bitcoin. Daily prices are <strong>split- and dividend-adjusted closes</strong> from Yahoo Finance.
+          Split- and dividend-adjusted daily closes from Yahoo Finance. Only closes count, not
+          intraday lows. These are today's biggest names, so survivorship flatters the returns.
         </li>
         <li>
-          A close is a <strong>permanent floor</strong> if no later close was at-or-below it (so far!). Sorts:
-          "featured" pins popular indexes, the Mag 7, semis, and BTC up top;
-          "most ATHs" by total ATH count in the visible window;
-          "ATHs that were never undercut" by permanent-floor count; and
-          "most ATHs per year" by count divided by the ticker's years of history in the window
-          (so a 4-year-old ETF with 80 ATHs can outscore a 30-year-old name with 600).
+          Color is the annualized return from buying at that close to the latest close, with
+          dividends reinvested and no inflation adjustment. {mid}% a year is the figure
+          retirement planning most often assumes, usually after inflation, so it's a lenient
+          bar here.
         </li>
         <li>
-          Every row shares the same horizontal axis: the last {AXIS_YEARS} years, ending today (dashed vertical line).
-          ATHs before the window are hidden; rows for younger tickers (BTC, ARM, PLTR) just start later.
+          Later opportunities to buy for cheaper counts the trading days after a high that
+          closed at or below it.
         </li>
         <li>
-          Color encodes how many trading days the close stayed at-or-below the ATH afterward, in linear bins:
-          ≤3 months stays green, 3–6 olive, 6–12 yellow, 1–2 years orange, 2+ years red.
+          The timeline starts in {phone.fromYear} on phones, {tablet.fromYear} on tablets, and{' '}
+          {wide.fromYear} on wider screens.
         </li>
         <li>
-          Only <em>closes</em> are checked, not intraday lows.
+          The ▾ marks today's price: between the last all-time high today's close still
+          clears and the next one, which it doesn't.
         </li>
         <li>
           Data refreshed {generatedAt ? new Date(generatedAt).toLocaleString() : '—'}.

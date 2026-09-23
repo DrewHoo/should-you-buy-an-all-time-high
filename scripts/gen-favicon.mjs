@@ -15,17 +15,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const outDir = resolve(__dirname, '..', 'public')
 mkdirSync(outDir, { recursive: true })
 
-// Cream paper square with a five-bar "barcode" running the leaderboard's
-// time-underwater color ramp: green (permanent) → olive → amber →
-// burnt-orange → deep red (decade+ underwater). The dot is the red
-// accent that mirrors the on-page masthead.
+// Cream paper square with a five-tick slice of a board row, running the
+// page's return scale (src/chart-utils.js RETURN_COLORS.light): dark red below
+// 7%/yr, neutral at it, dollar-bill green above.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="12" fill="#f1ead6"/>
-  <line x1="10" y1="18" x2="10" y2="46" stroke="#2f7a3b" stroke-width="6" stroke-linecap="round"/>
-  <line x1="22" y1="20" x2="22" y2="44" stroke="#6c7c2b" stroke-width="6" stroke-linecap="round"/>
-  <line x1="34" y1="20" x2="34" y2="44" stroke="#b39120" stroke-width="6" stroke-linecap="round"/>
-  <line x1="46" y1="18" x2="46" y2="46" stroke="#c66a2b" stroke-width="6" stroke-linecap="round"/>
-  <line x1="56" y1="14" x2="56" y2="50" stroke="#e63b2e" stroke-width="6" stroke-linecap="round"/>
+  <line x1="12" y1="16" x2="12" y2="48" stroke="#971b1a" stroke-width="7" stroke-linecap="round"/>
+  <line x1="22.5" y1="16" x2="22.5" y2="48" stroke="#a9a49c" stroke-width="7" stroke-linecap="round"/>
+  <line x1="33" y1="16" x2="33" y2="48" stroke="#57914a" stroke-width="7" stroke-linecap="round"/>
+  <line x1="43.5" y1="16" x2="43.5" y2="48" stroke="#57914a" stroke-width="7" stroke-linecap="round"/>
+  <line x1="54" y1="16" x2="54" y2="48" stroke="#57914a" stroke-width="7" stroke-linecap="round"/>
 </svg>`
 
 writeFileSync(resolve(outDir, 'favicon.svg'), svg + '\n')

@@ -2,161 +2,152 @@
 // they're trivial to unit-test or reuse if the UI gets ported.
 
 // One JSON ticker file from public/data/<SYM>.json carries:
-//   closes, dates, athIdx, athRecov, athBuyable, athMaxDD, athCurrentRel, stats
+//   closes, dates, athIdx, athBuyable, athMaxDD, athCurrentRel, stats
 // `athLevels(ticker)` zips those parallel arrays into per-ATH records the
-// chart can map over directly.
+// chart can map over directly. Cached per ticker.
+//
+// `annual` is the annualized return from buying at that ATH close to the
+// ticker's latest close. It's computed for every ATH, however recent: a
+// dip of a few weeks annualizes to something dramatic, and the reader can
+// be trusted with that. An ATH on the latest close has returned nothing
+// yet, so it's 0.
+const _levelsCache = new WeakMap()
 export function athLevels(t) {
-  const max = t.stats.athClose
-  return t.athIdx.map((closeIdx, k) => {
-    const price = t.closes[closeIdx]
+  const cached = _levelsCache.get(t)
+  if (cached) return cached
+  const lastMs = Date.parse(t.stats.lastDate)
+  const levels = t.athIdx.map((closeIdx, k) => {
+    const rel = t.athCurrentRel ? t.athCurrentRel[k] : 1
+    const years = (lastMs - Date.parse(t.dates[closeIdx])) / YEAR_MS
     return {
       idx: closeIdx,
       date: t.dates[closeIdx],
-      price,
-      pct: price / max,
-      perm: t.athRecov[k] == null,
-      recov: t.athRecov[k],
+      price: t.closes[closeIdx],
       buyable: t.athBuyable[k],
       maxDD: t.athMaxDD ? t.athMaxDD[k] : 0,
-      currentRel: t.athCurrentRel ? t.athCurrentRel[k] : 1,
-      annual: t.athAnnualReturn ? t.athAnnualReturn[k] : null,
+      currentRel: rel,
+      annual: years > 0 ? rel ** (1 / years) - 1 : rel - 1,
     }
   })
-}
-
-// The row SVG uses an inset (12 of 840 viewBox units) on each side so the
-// axis sits inside the container edges. Both the chart row and the
-// background timeline need this fraction to line up.
-export const AXIS_INSET_FRAC = 12 / 840
-
-// Per-ticker stats restricted to the visible window. Cached per ticker.
-const _windowedCache = new WeakMap()
-export function windowedAthStats(t) {
-  const cached = _windowedCache.get(t)
-  if (cached) return cached
-  let athCount = 0
-  let permCount = 0
-  for (let k = 0; k < t.athIdx.length; k++) {
-    const frac = dateToAxis(t.dates[t.athIdx[k]])
-    if (frac < 0 || frac > 1) continue
-    athCount++
-    if (t.athRecov[k] == null) permCount++
-  }
-  // Years of history the ticker actually has inside the window. A 5-year-old
-  // ETF gets credited with 5 years (not 30), so ATHs-per-year is honest.
-  const firstMs = Date.parse(t.dates[0])
-  const effectiveStartMs = Math.max(AXIS_START_MS, firstMs)
-  const yearsInWindow = Math.max(0.25, (AXIS_END_MS - effectiveStartMs) / (365.25 * 86400000))
-  const athsPerYear = athCount / yearsInWindow
-  const result = { athCount, permCount, athsPerYear, yearsInWindow }
-  _windowedCache.set(t, result)
-  return result
-}
-
-export function nowPct(t) {
-  return t.stats.lastClose / t.stats.athClose
+  _levelsCache.set(t, levels)
+  return levels
 }
 
 // ---------------------------------------------------------------
-// Shared time axis — used by the row chart.
+// Shared time axis.
 //
 // Every row plots ATHs at their date position on the same horizontal
-// span (default: the last 30 years). That makes the dot-com cluster,
-// '08, and the 2021 peaks line up visually across tickers.
+// span, so the dot-com cluster, '08, and the 2022 peaks line up across
+// tickers. How far back that span reaches depends on how much width
+// there is to spread it over: a phone gets 2007 onward (the GFC peaks
+// and everything since), wider screens reach back to the dot-com run-up.
+// `minWidth` is a viewport width and matches the breakpoints in
+// styles.css.
 // ---------------------------------------------------------------
-export const AXIS_YEARS = 30
-export const AXIS_END_MS = Date.UTC(
-  new Date().getUTCFullYear(),
-  new Date().getUTCMonth(),
-  new Date().getUTCDate(),
-)
-export const AXIS_START_MS = AXIS_END_MS - AXIS_YEARS * 365.25 * 24 * 3600 * 1000
+export const RANGES = [
+  { minWidth: 1080, fromYear: 1995 },
+  { minWidth: 640, fromYear: 1999 },
+  { minWidth: 0, fromYear: 2007 },
+]
 
-export function dateToAxis(dateStr) {
-  const t = Date.parse(dateStr)
-  return (t - AXIS_START_MS) / (AXIS_END_MS - AXIS_START_MS)
+export const YEAR_MS = 365.25 * 86400000
+
+export function makeAxis(fromYear, endMs) {
+  const startMs = Date.UTC(fromYear, 0, 1)
+  const span = endMs - startMs
+  const frac = (dateStr) => (Date.parse(dateStr) - startMs) / span
+  const ticks = []
+  for (let y = Math.ceil((fromYear + 1) / 5) * 5; Date.UTC(y, 0, 1) < endMs; y += 5) {
+    ticks.push({ year: y, frac: (Date.UTC(y, 0, 1) - startMs) / span })
+  }
+  return { fromYear, startMs, endMs, frac, ticks }
 }
 
 // ---------------------------------------------------------------
-// Per-ticker log price axis — kept for the OG image and any future
-// alt view. Not used by the live row chart anymore.
+// Tick color: the annualized return from buying at that ATH close to
+// the latest close (dividends in, inflation not taken out).
+//
+// A diverging scale around RETURN_MID, the 7%/yr that retirement
+// planning most often assumes. At the midpoint a tick is neutral gray;
+// it goes redder the further the return falls short and deeper
+// dollar-bill green the further it beats it, saturating RETURN_SPAN
+// either side (so -8%/yr is full red, +22%/yr full green). The tooltip
+// always carries the exact number.
+//
+// Each color scheme gets its own steps, checked with the dataviz palette
+// validator against that scheme's background. The gray midpoint sits
+// just above the 2:1 floor so average returns recede, and the poles
+// differ in lightness so they still separate for red-green colorblind
+// readers: on the light paper red is the darker pole, on the dark
+// background green is the brighter one.
 // ---------------------------------------------------------------
-const _floorCache = new WeakMap()
+export const RETURN_MID = 0.07
+export const RETURN_SPAN = 0.15
 
-export function tickerFloor(t) {
-  let f = _floorCache.get(t)
-  if (f != null) return f
-  let min = 1
-  for (const idx of t.athIdx) {
-    const p = t.closes[idx] / t.stats.athClose
-    if (p < min) min = p
-  }
-  // Touch below the lowest ATH; never less than 1e-6 (numerical guard).
-  f = Math.max(1e-6, min * 0.7)
-  _floorCache.set(t, f)
-  return f
+export const RETURN_COLORS = {
+  light: { below: '#971b1a', mid: '#a9a49c', above: '#57914a' },
+  dark: { below: '#e76250', mid: '#67635d', above: '#8bd47b' },
 }
 
-export function pctToAxis(t, pct) {
-  const floor = tickerFloor(t)
-  if (pct <= floor) return 0
-  if (pct >= 1) return 1
-  return 1 - Math.log(pct) / Math.log(floor)
+// Quantized to whole percentage points so a row draws one path per
+// color instead of one element per tick.
+const STEPS = Math.round(RETURN_SPAN * 100)
+
+function hexToOklab(hex) {
+  const lin = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  const [r, g, b] = lin
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
 }
 
-// Decade-ish labels between floor and 100%.
-export function logLabels(t) {
-  const floor = tickerFloor(t)
-  const fmt = (p) => {
-    if (p >= 0.01) return (p * 100).toFixed(0) + '%'
-    if (p >= 0.001) return (p * 100).toFixed(1) + '%'
-    return (p * 100).toFixed(2) + '%'
+function oklabToHex([L, A, B]) {
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3
+  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3
+  const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3
+  const rgb = [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ]
+  return '#' + rgb.map((c) => {
+    c = Math.max(0, Math.min(1, c))
+    const v = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055
+    return Math.round(v * 255).toString(16).padStart(2, '0')
+  }).join('')
+}
+
+// RAMPS[scheme][STEPS + k] is the color k percentage points away from
+// the midpoint.
+function buildRamp({ below, mid, above }) {
+  const [b, m, a] = [below, mid, above].map(hexToOklab)
+  const out = []
+  for (let k = -STEPS; k <= STEPS; k++) {
+    const pole = k < 0 ? b : a
+    const t = Math.abs(k) / STEPS
+    out.push(oklabToHex(m.map((v, i) => v + (pole[i] - v) * t)))
   }
-  const out = [{ pct: 1, label: '100%' }]
-  let v = 1
-  while (v / 10 > floor * 1.05) {
-    v /= 10
-    out.push({ pct: v, label: fmt(v) })
-  }
-  const last = out[out.length - 1].pct
-  if (floor < last * 0.5) out.push({ pct: floor, label: fmt(floor) })
   return out
 }
+const RAMPS = { light: buildRamp(RETURN_COLORS.light), dark: buildRamp(RETURN_COLORS.dark) }
 
-// ---------------------------------------------------------------
-// Buyer-perspective color encoding — the C3 / time-underwater scheme.
-//
-// Permanent ATHs are pure win (deep green). Non-permanent ATHs are
-// linearly bucketed by trading days at-or-below the ATH price:
-//   ≤  3 months → light green   (still pretty harmless)
-//   3–6 months  → olive
-//   6–12 months → yellow
-//   1–2 years   → burnt orange
-//   2+ years    → red
-// ~252 trading days per calendar year is the conversion.
-// ---------------------------------------------------------------
-export const COLOR = {
-  victory:  '#2f7a3b',   // permanent ATH
-  short:    '#5aa14a',   // ≤ 3 months
-  safe:     '#6c7c2b',   // 3–6 months
-  meh:      '#b39120',   // 6–12 months
-  scary:    '#c66a2b',   // 1–2 years
-  disaster: '#e63b2e',   // 2+ years
-  ink:      '#1a1814',
-  bg:       '#f1ead6',
+export function returnColor(annual, scheme = 'light') {
+  const k = Number.isFinite(annual) ? Math.round((annual - RETURN_MID) * 100) : 0
+  return RAMPS[scheme][STEPS + Math.max(-STEPS, Math.min(STEPS, k))]
 }
 
-const D_3M = 63
-const D_6M = 126
-const D_1Y = 252
-const D_2Y = 504
-
-export function colorByTime(level) {
-  if (level.perm) return COLOR.victory
-  const days = level.buyable
-  if (days <= D_3M) return COLOR.short
-  if (days <= D_6M) return COLOR.safe
-  if (days <= D_1Y) return COLOR.meh
-  if (days <= D_2Y) return COLOR.scary
-  return COLOR.disaster
+// Stops for drawing the scale as a gradient, low end first.
+export function returnStops(n = 7, scheme = 'light') {
+  return Array.from({ length: n }, (_, i) => {
+    const offset = i / (n - 1)
+    return { offset, color: returnColor(RETURN_MID + RETURN_SPAN * (offset * 2 - 1), scheme) }
+  })
 }
