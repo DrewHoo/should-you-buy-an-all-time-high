@@ -1,7 +1,8 @@
 // Fetch adjusted daily closes from Yahoo Finance for every ticker in
 // UNIVERSE, compute the ATH and recovery-day sets, and write a compact
 // JSON file per ticker into public/data/. Also writes public/data/index.json
-// describing what was fetched.
+// describing what was fetched, and public/data/board.json: just the ATHs
+// of every ticker, which is all the page loads.
 //
 // This is adapted from the upstream buy-it-now-or-never repo. The two
 // fork-specific additions are:
@@ -15,6 +16,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { UNIVERSE } from './universe.mjs'
+import { toBoardTicker } from '../src/chart-utils.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT_DIR = resolve(__dirname, '..', 'public', 'data')
@@ -178,7 +180,8 @@ async function processOne(ticker) {
   if (rows.length === 0) throw new Error('no data')
   const a = analyze(rows)
   const name = hardcodedName || (await fetchDisplayName(symbol)) || symbol
-  // Field names match what src/App.jsx expects.
+  // The full series is for the image scripts and anyone reading the data;
+  // the page loads board.json, built from this by toBoardTicker.
   const payload = {
     symbol,
     name,
@@ -198,13 +201,16 @@ async function processOne(ticker) {
     JSON.stringify(payload),
   )
   return {
-    symbol, name, category,
-    firstDate: a.stats.firstDate,
-    lastDate: a.stats.lastDate,
-    athCount: a.stats.athCount,
-    permAthCount: a.stats.permAthCount,
-    avgPermAthAgeDays: a.stats.avgPermAthAgeDays,
-    pctOffAth: a.stats.pctOffAth,
+    index: {
+      symbol, name, category,
+      firstDate: a.stats.firstDate,
+      lastDate: a.stats.lastDate,
+      athCount: a.stats.athCount,
+      permAthCount: a.stats.permAthCount,
+      avgPermAthAgeDays: a.stats.avgPermAthAgeDays,
+      pctOffAth: a.stats.pctOffAth,
+    },
+    board: toBoardTicker(payload),
   }
 }
 
@@ -240,19 +246,31 @@ async function main() {
   })
 
   const index = []
+  const board = []
   const failures = []
   for (const r of results) {
-    if (r.ok) index.push(r.value)
-    else failures.push({ symbol: r.item.symbol, error: r.error })
+    if (r.ok) {
+      index.push(r.value.index)
+      board.push(r.value.board)
+    } else {
+      failures.push({ symbol: r.item.symbol, error: r.error })
+    }
   }
 
+  // Both carry the same generatedAt: the page reads index.json uncached
+  // and uses it to version its request for board.json.
+  const generatedAt = new Date().toISOString()
   await writeFile(
     resolve(OUT_DIR, 'index.json'),
-    JSON.stringify({ generatedAt: new Date().toISOString(), tickers: index }, null, 2),
+    JSON.stringify({ generatedAt, tickers: index }, null, 2),
+  )
+  await writeFile(
+    resolve(OUT_DIR, 'board.json'),
+    JSON.stringify({ generatedAt, tickers: board }),
   )
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
-  console.log(`\nWrote ${index.length} tickers + index.json in ${elapsed}s`)
+  console.log(`\nWrote ${index.length} tickers + index.json + board.json in ${elapsed}s`)
   if (failures.length) {
     console.log(`Skipped ${failures.length}:`)
     for (const f of failures) console.log(`  ${f.symbol.padEnd(10)} ${f.error}`)

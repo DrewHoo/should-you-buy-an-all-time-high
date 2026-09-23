@@ -112,9 +112,24 @@ function useColorScheme() {
   return scheme
 }
 
+// GitHub Pages now and then answers with a 503. Try each load three
+// times, a moment apart, before giving up.
+async function fetchJson(url, init) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const r = await fetch(url, init)
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText || 'error'}`.trim())
+      return await r.json()
+    } catch (err) {
+      if (attempt >= 3) throw err
+      await new Promise((resolve) => setTimeout(resolve, 600 * attempt))
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
-// Top-level: loads index.json, then fetches every ticker's
-// detail file in parallel. Shows a progress count while loading.
+// Top-level: loads index.json, then board.json, which holds every
+// ticker's all-time highs in one file.
 //
 // `initialIndex` is the ticker list baked into the page at build time
 // (scripts/prerender.mjs), so the loading view can list every ticker
@@ -124,7 +139,6 @@ function useColorScheme() {
 export default function App({ initialIndex = null }) {
   const [index, setIndex] = useState(initialIndex)
   const [tickers, setTickers] = useState(null)
-  const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState(null)
   const scheme = useColorScheme()
 
@@ -134,54 +148,38 @@ export default function App({ initialIndex = null }) {
       try {
         // index.json is the freshness gate: always bypass the HTTP/CDN cache
         // so a new refresh is picked up immediately. Its `generatedAt` then
-        // versions the (cacheable) per-ticker files, busting them in lockstep.
-        const idx = await fetch(`${BASE}data/index.json`, { cache: 'no-store' }).then(r => r.json())
+        // versions the (cacheable) board.json, busting it in lockstep.
+        const idx = await fetchJson(`${BASE}data/index.json`, { cache: 'no-store' })
         if (cancelled) return
         setIndex(idx)
-        setProgress({ done: 0, total: idx.tickers.length })
-
-        const ver = encodeURIComponent(idx.generatedAt || '')
-        const results = new Array(idx.tickers.length)
-        let done = 0
-        await Promise.all(idx.tickers.map(async (t, i) => {
-          try {
-            const d = await fetch(`${BASE}data/${encodeURIComponent(t.symbol)}.json?v=${ver}`).then(r => r.json())
-            results[i] = d
-          } catch {
-            results[i] = null
-          }
-          done++
-          if (!cancelled) setProgress({ done, total: idx.tickers.length })
-        }))
+        const board = await fetchJson(`${BASE}data/board.json?v=${encodeURIComponent(idx.generatedAt || '')}`)
         if (cancelled) return
-        const ok = results.filter(Boolean)
-        ok.forEach(t => { athLevels(t) })
-        setTickers(ok)
+        board.tickers.forEach((t) => { athLevels(t) })
+        setTickers(board.tickers)
       } catch (err) {
-        if (!cancelled) setError(err.message)
+        console.error('Could not load the price data:', err)
+        if (!cancelled) setError(true)
       }
     })()
     return () => { cancelled = true }
   }, [])
 
-  if (error) return <main className="state state--error">Couldn't load data: {error}</main>
-  if (!tickers) return <Loading index={index} progress={progress} scheme={scheme} />
+  if (!tickers) return <Loading index={index} error={error} scheme={scheme} />
   return <Leaderboard tickers={tickers} generatedAt={index?.generatedAt} scheme={scheme} />
 }
 
 // The page before the price data arrives: the masthead, every ticker in
 // featured order with an empty timeline, and the notes. It's also what
-// the prerender bakes into the HTML for crawlers.
-function Loading({ index, progress, scheme }) {
-  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0
+// the prerender bakes into the HTML for crawlers. If the data never
+// arrives, it says so in the loader's place.
+function Loading({ index, error, scheme }) {
   const tickers = index ? [...index.tickers].sort(byFeatured) : []
   return (
     <main>
       <Mast scheme={scheme} endMs={index ? Date.parse(index.generatedAt) : 0} avg={DEFAULT_AVG} />
-      <div className="loader">
-        Loading <strong>{progress.done}/{progress.total || '…'}</strong> tickers
-        <div className="loader-bar"><div className="loader-fill" style={{ width: `${pct}%` }} /></div>
-      </div>
+      {error
+        ? <p className="loader loader--error">Couldn't load the price data. Reload to try again.</p>
+        : <p className="loader">Loading prices…</p>}
       <ol className="rows">
         {tickers.map((t) => (
           <li key={t.symbol} className="row">
@@ -249,7 +247,7 @@ function Leaderboard({ tickers, generatedAt, scheme }) {
   // The axis ends at the latest close in the data, not the viewer's clock,
   // so the right edge always means "most recent close".
   const endMs = useMemo(
-    () => Math.max(...tickers.map((t) => Date.parse(t.stats.lastDate))),
+    () => Math.max(...tickers.map((t) => Date.parse(t.lastDate))),
     [tickers],
   )
   const axis = useMemo(() => makeAxis(range.fromYear, endMs), [range.fromYear, endMs])
@@ -559,16 +557,17 @@ const Row = memo(function Row({ ticker, axis, chartW, gridD, scheme, mid }) {
   // lands on its latest one. A ticker below even its first close (DASH,
   // KHC) clears nothing; the fetch script falls back to that first ATH, and
   // the marker stays there at the start of its history.
-  const nowDate = ticker.stats.currentPriceDate
+  const nowDate = ticker.currentPriceDate
   let nowX = null
   if (nowDate) {
-    const k = ticker.athIdx.findIndex((i) => ticker.dates[i] === nowDate)
-    const clears = k >= 0 && ticker.closes[ticker.athIdx[k]] <= ticker.stats.lastClose
-    const next = clears ? ticker.athIdx[k + 1] : undefined
+    const { dates, closes } = ticker.ath
+    const k = dates.indexOf(nowDate)
+    const clears = k >= 0 && closes[k] <= ticker.lastClose
+    const next = clears ? dates[k + 1] : undefined
     const x0 = px(axis.frac(nowDate))
-    nowX = next == null ? x0 : Math.round((x0 + px(axis.frac(ticker.dates[next]))) / 2)
+    nowX = next == null ? x0 : Math.round((x0 + px(axis.frac(next))) / 2)
   }
-  const historyX = px(axis.frac(ticker.dates[0]))
+  const historyX = px(axis.frac(ticker.firstDate))
 
   const active = hover ? levels[hover.k] : null
 

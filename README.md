@@ -43,8 +43,9 @@ Visit <http://localhost:5173/should-you-buy-an-all-time-high/>.
   Output is one compact JSON per ticker plus `index.json`, all written
   to `public/data/`.
 - The Vite build serves those JSON files statically.
-- `src/App.jsx` loads `data/index.json`, then fetches every ticker's
-  detail file in parallel and renders the leaderboard once they're in.
+- `src/App.jsx` loads `data/index.json`, then `data/board.json`: every
+  ticker's all-time highs in one file (about 0.8 MB gzipped). The full
+  per-ticker histories stay in `public/data/` for the image scripts.
   Each row is an inline SVG; the return color scale (`returnColor`) and the
   breakpoint-dependent timeline start (`RANGES`) live in
   `src/chart-utils.js`.
