@@ -1,18 +1,21 @@
 # Should You Buy an All-Time High?
 
-Every closing-price all-time high for 200+ tickers, plotted on a shared
-30-year timeline, colored by **how many trading days the price stayed
-at-or-below it afterward**.
+Every closing-price all-time high for 200+ tickers, plotted on one shared
+timeline and colored by **the annualized return from buying at that close to
+the latest close** (dividends in, inflation not taken out).
 
-- Green ticks → permanent ATH, never undercut (the buys-of-a-lifetime)
-- Olive → a brief blip below, recovered quickly
-- Amber → months at-or-below
-- Burnt orange → years
-- Deep red → a decade or more underwater (the dot-com scars)
+- Gray → about 7% a year, the figure retirement planning usually assumes
+- Greener → beat it, fully dollar-bill green at +22%/yr
+- Redder → fell short, fully red at −8%/yr
 
-Hover any row to scrub through its ATH ladder and read date / drawdown /
-recovery window for each peak. Sorted by recency-corrected share of
-permanent ATHs.
+The midpoint and span are `RETURN_MID` and `RETURN_SPAN` in
+`src/chart-utils.js`.
+
+The timeline reaches back to 1995 on wide screens, 1999 on tablets, and
+2007 on phones, so a narrow screen still has room to read the clusters.
+
+Hover or tap any row to read each peak's date, return since, and how many
+later trading days closed cheaper.
 
 Live: <https://drewhoover.com/should-you-buy-an-all-time-high/>
 
@@ -42,8 +45,9 @@ Visit <http://localhost:5173/should-you-buy-an-all-time-high/>.
 - The Vite build serves those JSON files statically.
 - `src/App.jsx` loads `data/index.json`, then fetches every ticker's
   detail file in parallel and renders the leaderboard once they're in.
-  Each row is an inline SVG; the color encoding lives in
-  `src/chart-utils.js` (`colorByTime`).
+  Each row is an inline SVG; the return color scale (`returnColor`) and the
+  breakpoint-dependent timeline start (`RANGES`) live in
+  `src/chart-utils.js`.
 - A scheduled GitHub Action refreshes the data on weekdays after the
   US close — see `.github/workflows/deploy.yml`.
 
@@ -61,10 +65,10 @@ npm run gen:og         # writes public/og.png (1200x630)
 ```
 
 Both are committed; CI does not regenerate them. Rerun by hand if you
-tweak the look.
+tweak the look. `gen:og` draws real rows, so run `npm run fetch` first.
 
 ## Credits
 
 A reframing of [drewhoover/buy-it-now-or-never](https://github.com/DrewHoo/buy-it-now-or-never).
-Where that view asks "is this ATH the last one?", this one asks "how
-long would I have been underwater if I bought here?".
+Where that view asks "is this ATH the last one?", this one asks "what
+would I have made if I bought here?".
