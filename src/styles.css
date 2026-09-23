@@ -254,20 +254,8 @@ body:has(#dhv-back-bar) .row--head { top: 32px; }
 .t-later-note { grid-column: 1 / -1; margin-top: 4px; font-size: 10px; color: var(--ink-faint); }
 
 /* ─── Loading + error states ───────────────────────────────── */
-.state { max-width: 720px; margin: 0 auto; padding: 48px 32px; }
-.state--error { color: var(--accent); }
-.loader { margin-top: 20px; font-size: 12px; color: var(--ink-soft); }
-.loader-bar {
-  width: 240px; height: 4px;
-  background: var(--rule);
-  margin-top: 8px;
-  position: relative; overflow: hidden;
-}
-.loader-fill {
-  position: absolute; left: 0; top: 0; bottom: 0;
-  background: var(--ink);
-  transition: width 0.15s ease;
-}
+.loader { margin: 18px 0 12px; font-size: 12px; color: var(--ink-soft); }
+.loader--error { color: var(--accent); }
 
 /* ─── Notes ────────────────────────────────────────────────── */
 .notes {

@@ -1,10 +1,36 @@
 // Chart data helpers. Pure functions, no React, no DOM. Kept separate so
 // they're trivial to unit-test or reuse if the UI gets ported.
 
-// One JSON ticker file from public/data/<SYM>.json carries:
-//   closes, dates, athIdx, athBuyable, athMaxDD, athCurrentRel, stats
-// `athLevels(ticker)` zips those parallel arrays into per-ATH records the
-// chart can map over directly. Cached per ticker.
+// The page draws only each ticker's all-time highs, so it loads one
+// board.json of these instead of every ticker's full daily history
+// (public/data/<SYM>.json, about 15x the bytes, still written for the
+// image scripts). fetch-data builds each entry with toBoardTicker:
+//   symbol, name, category, firstDate, lastDate, lastClose,
+//   currentPriceDate (the latest ATH today's close still clears),
+//   ath: parallel arrays of dates, closes, cheaperDays (later trading
+//   days that closed at or below it), and maxDD (worst later drawdown).
+// Prices keep 6 significant digits, well past what any return shows.
+export function toBoardTicker(t) {
+  const round = (x) => +x.toPrecision(6)
+  return {
+    symbol: t.symbol,
+    name: t.name,
+    category: t.category,
+    firstDate: t.dates[0],
+    lastDate: t.stats.lastDate,
+    lastClose: round(t.stats.lastClose),
+    currentPriceDate: t.stats.currentPriceDate,
+    ath: {
+      dates: t.athIdx.map((i) => t.dates[i]),
+      closes: t.athIdx.map((i) => round(t.closes[i])),
+      cheaperDays: t.athBuyable,
+      maxDD: t.athMaxDD.map((x) => +x.toFixed(3)),
+    },
+  }
+}
+
+// `athLevels(ticker)` zips a board entry's parallel ATH arrays into
+// per-ATH records the chart can map over directly. Cached per ticker.
 //
 // `annual` is the annualized return from buying at that ATH close to the
 // ticker's latest close. It's computed for every ATH, however recent: a
@@ -15,16 +41,16 @@ const _levelsCache = new WeakMap()
 export function athLevels(t) {
   const cached = _levelsCache.get(t)
   if (cached) return cached
-  const lastMs = Date.parse(t.stats.lastDate)
-  const levels = t.athIdx.map((closeIdx, k) => {
-    const rel = t.athCurrentRel ? t.athCurrentRel[k] : 1
-    const years = (lastMs - Date.parse(t.dates[closeIdx])) / YEAR_MS
+  const lastMs = Date.parse(t.lastDate)
+  const { dates, closes, cheaperDays, maxDD } = t.ath
+  const levels = dates.map((date, k) => {
+    const rel = t.lastClose / closes[k]
+    const years = (lastMs - Date.parse(date)) / YEAR_MS
     return {
-      idx: closeIdx,
-      date: t.dates[closeIdx],
-      price: t.closes[closeIdx],
-      buyable: t.athBuyable[k],
-      maxDD: t.athMaxDD ? t.athMaxDD[k] : 0,
+      date,
+      price: closes[k],
+      buyable: cheaperDays[k],
+      maxDD: maxDD[k],
       currentRel: rel,
       annual: years > 0 ? rel ** (1 / years) - 1 : rel - 1,
     }

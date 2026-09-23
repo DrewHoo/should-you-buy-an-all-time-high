@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  athLevels, makeAxis, RETURN_MID, RETURN_SPAN, returnColor, returnStops,
+  athLevels, makeAxis, RETURN_MID, RETURN_SPAN, returnColor, returnStops, toBoardTicker,
 } from '../src/chart-utils.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -47,8 +47,8 @@ if (!existsSync(resolve(dataDir, 'index.json'))) {
   process.exit(1)
 }
 
-const tickers = SYMBOLS.map((s) => JSON.parse(readFileSync(resolve(dataDir, `${s}.json`), 'utf8')))
-const endMs = Math.max(...tickers.map((t) => Date.parse(t.stats.lastDate)))
+const tickers = SYMBOLS.map((s) => toBoardTicker(JSON.parse(readFileSync(resolve(dataDir, `${s}.json`), 'utf8'))))
+const endMs = Math.max(...tickers.map((t) => Date.parse(t.lastDate)))
 const axis = makeAxis(FROM_YEAR, endMs)
 
 const X0 = 190
@@ -86,7 +86,7 @@ const rows = tickers.map((t, i) => {
     sum += l.annual; n++
   }
   if (x != null) draw(x, sum, n)
-  const historyX = px(axis.frac(t.dates[0]))
+  const historyX = px(axis.frac(t.firstDate))
   const paths = [...byColor].map(([color, d]) =>
     `<path d="${d}" stroke="${color}" stroke-width="1.5"/>`).join('')
   return `

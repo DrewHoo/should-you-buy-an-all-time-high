@@ -10,7 +10,7 @@ import sharp from 'sharp'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { athLevels, makeAxis, RETURN_MID, RETURN_SPAN, returnColor } from '../src/chart-utils.js'
+import { athLevels, makeAxis, RETURN_MID, RETURN_SPAN, returnColor, toBoardTicker } from '../src/chart-utils.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const outDir = resolve(__dirname, '..', 'public')
@@ -45,8 +45,8 @@ if (!existsSync(resolve(dataDir, `${SYMBOL}.json`))) {
 }
 
 const tickerCount = JSON.parse(readFileSync(resolve(dataDir, 'index.json'), 'utf8')).tickers.length
-const ticker = JSON.parse(readFileSync(resolve(dataDir, `${SYMBOL}.json`), 'utf8'))
-const axis = makeAxis(FROM_YEAR, Date.parse(ticker.stats.lastDate))
+const ticker = toBoardTicker(JSON.parse(readFileSync(resolve(dataDir, `${SYMBOL}.json`), 'utf8')))
+const axis = makeAxis(FROM_YEAR, Date.parse(ticker.lastDate))
 const levels = athLevels(ticker).filter((l) => axis.frac(l.date) >= 0)
 const peak = levels.filter((l) => l.date < PEAK_BEFORE).at(-1)
 const peakPct = Math.round(peak.annual * 100)
