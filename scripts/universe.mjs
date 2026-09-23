@@ -3,8 +3,9 @@
 //   - S&P 100 (OEX)
 //   - Major tech / growth ETFs (and a few sectors for context)
 //   - Semiconductor ETFs and notable semi names outside NDX/OEX
-//   - Commodity ETFs (gold, silver)
-//   - Crypto (BTC, ETH, plus spot BTC ETFs)
+//   - Commodity ETFs: one fund per metal, plus energy and agriculture
+//   - Crypto: bitcoin and the ten oldest coins still widely traded
+//     (no stablecoins, no funds that just hold bitcoin)
 //
 // To refresh constituents (a few times per year):
 //   - https://en.wikipedia.org/wiki/Nasdaq-100
@@ -104,19 +105,37 @@ const ETFS_TECH_AND_GROWTH = [
   { symbol: 'XLRE', name: 'Real Estate Select Sector SPDR' },
 ]
 
+// ETFs, not futures: continuous futures went negative in 2020 (crude), and a
+// return from a negative price is meaningless. The futures-backed funds
+// (USO, UNG, DBA, DBC) lose value rolling contracts, which is part of
+// their story here.
 const COMMODITIES = [
   { symbol: 'GLD',  name: 'SPDR Gold Shares' },
-  { symbol: 'IAU',  name: 'iShares Gold Trust' },
   { symbol: 'SLV',  name: 'iShares Silver Trust' },
-  { symbol: 'SIVR', name: 'Aberdeen Silver ETF' },
+  { symbol: 'PPLT', name: 'abrdn Platinum ETF' },
+  { symbol: 'PALL', name: 'abrdn Palladium ETF' },
+  { symbol: 'CPER', name: 'United States Copper Index Fund' },
+  { symbol: 'USO',  name: 'United States Oil Fund' },
+  { symbol: 'UNG',  name: 'United States Natural Gas Fund' },
+  { symbol: 'DBA',  name: 'Invesco DB Agriculture Fund' },
+  { symbol: 'DBC',  name: 'Invesco DB Commodity Index Tracking Fund' },
 ]
 
+// Oldest first, by launch. Yahoo's daily history starts in 2014 for
+// bitcoin and late 2017 for most of the rest, so the rows are shorter
+// than the coins are old.
 const CRYPTO = [
-  { symbol: 'BTC-USD', name: 'Bitcoin (USD)' },
-  { symbol: 'ETH-USD', name: 'Ethereum (USD)' },
-  { symbol: 'GBTC',    name: 'Grayscale Bitcoin Trust' },
-  { symbol: 'IBIT',    name: 'iShares Bitcoin Trust' },
-  { symbol: 'FBTC',    name: 'Fidelity Wise Origin Bitcoin Fund' },
+  { symbol: 'BTC-USD',  name: 'Bitcoin' },
+  { symbol: 'LTC-USD',  name: 'Litecoin' },
+  { symbol: 'XRP-USD',  name: 'XRP' },
+  { symbol: 'DOGE-USD', name: 'Dogecoin' },
+  { symbol: 'XMR-USD',  name: 'Monero' },
+  { symbol: 'XLM-USD',  name: 'Stellar' },
+  { symbol: 'ETH-USD',  name: 'Ethereum' },
+  { symbol: 'ETC-USD',  name: 'Ethereum Classic' },
+  { symbol: 'ZEC-USD',  name: 'Zcash' },
+  { symbol: 'BNB-USD',  name: 'BNB' },
+  { symbol: 'BCH-USD',  name: 'Bitcoin Cash' },
 ]
 
 // Build the canonical list. Stock entries get bare symbols; we look up
