@@ -34,7 +34,7 @@ const FEATURED_RANK = new Map(FEATURED.map((s, i) => [s, i]))
 
 const CATEGORIES = [
   ['all', 'All'], ['stock', 'Stocks'], ['etf', 'ETFs'],
-  ['commodity', 'Commodities'], ['crypto', 'Crypto'],
+  ['commodity', 'Metals'], ['crypto', 'Crypto'],
 ]
 
 const SORTS = [['featured', 'Featured'], ['lexicographic', 'Lexicographic']]
