@@ -22,9 +22,9 @@ Live: <https://drewhoover.com/should-you-buy-an-all-time-high/>
 ## Running locally
 
 ```bash
-npm install
-npm run fetch          # pull adjusted closes from Yahoo Finance
-npm run dev
+pnpm install
+pnpm run fetch          # pull adjusted closes from Yahoo Finance
+pnpm run dev
 ```
 
 Visit <http://localhost:5173/should-you-buy-an-all-time-high/>.
@@ -61,13 +61,13 @@ fetch, build, and deploy.
 ## Shareable assets
 
 ```bash
-npm run gen:favicon    # writes public/favicon.* and apple-touch-icon
-npm run gen:og         # writes public/og.png (1200x630)
-npm run gen:cover      # writes public/card.png (1200x750), the index-site card
+pnpm run gen:favicon    # writes public/favicon.* and apple-touch-icon
+pnpm run gen:og         # writes public/og.png (1200x630)
+pnpm run gen:cover      # writes public/card.png (1200x750), the index-site card
 ```
 
 Both are committed; CI does not regenerate them. Rerun by hand if you
-tweak the look. `gen:og` draws real rows, so run `npm run fetch` first.
+tweak the look. `gen:og` draws real rows, so run `pnpm run fetch` first.
 
 ## Credits
 

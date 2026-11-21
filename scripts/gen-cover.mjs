@@ -1,5 +1,5 @@
 // Generate the 1200x750 project card for the drewhoover.com index site.
-// Run with: node scripts/gen-cover.mjs (after `npm run fetch`, since it
+// Run with: node scripts/gen-cover.mjs (after `pnpm run fetch`, since it
 // draws SPY's real row). Writes public/card.png, which is committed and
 // copied to the index repo as public/projects/should-you-buy-an-all-time-high.png.
 //
@@ -40,7 +40,7 @@ const FROM_YEAR = 1995
 const PEAK_BEFORE = '2000-09-01'
 
 if (!existsSync(resolve(dataDir, `${SYMBOL}.json`))) {
-  console.error('public/data/ is empty. Run `npm run fetch` first.')
+  console.error('public/data/ is empty. Run `pnpm run fetch` first.')
   process.exit(1)
 }
 

@@ -3,7 +3,7 @@
 //
 // A slice of the real board: a handful of well-known rows drawn from
 // public/data with the same tick encoding as the page (src/chart-utils.js),
-// so the preview looks like the site. Needs `npm run fetch` first.
+// so the preview looks like the site. Needs `pnpm run fetch` first.
 
 import sharp from 'sharp'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
@@ -43,7 +43,7 @@ const SYMBOLS = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'NVDA', 'CSCO', 'INTC', 'GLD', 'B
 const FROM_YEAR = 1999
 
 if (!existsSync(resolve(dataDir, 'index.json'))) {
-  console.error('public/data/ is empty. Run `npm run fetch` first.')
+  console.error('public/data/ is empty. Run `pnpm run fetch` first.')
   process.exit(1)
 }
 
